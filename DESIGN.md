@@ -1,4 +1,10 @@
-# <LIB> — SSA subset: DI + Controller/Service + Junction bus + auto-networking + global cache
+# Trellis — design log
+
+> The **README** is authoritative. This is the running record of *why* each decision
+> went the way it did, kept because the reasoning is easy to lose and expensive to
+> re-derive. Some early sections were superseded during the build; where they
+> disagree with the README, the README is right.
+
 # (placeholder name: <LIB> for the framework, <NET> for the networking lib)
 
 STATUS: design, nothing built. Successor to Junky (SSJA) / the Fantasy Arena Network lib.

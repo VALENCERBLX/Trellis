@@ -7,7 +7,7 @@ The hierarchy you hand it *is* the API. Every event is declared. Everything expe
 
 <img src="https://img.shields.io/badge/Trellis-v0.1.0-3EA6A6?style=for-the-badge" alt="version" />
 <img src="https://img.shields.io/badge/Luau-Roblox-00A2FF?style=for-the-badge" alt="luau" />
-<img src="https://img.shields.io/badge/tests-308-22c55e?style=for-the-badge" alt="tests" />
+<img src="https://img.shields.io/badge/tests-311-22c55e?style=for-the-badge" alt="tests" />
 <img src="https://img.shields.io/badge/License-MIT-666?style=for-the-badge" alt="license" />
 <img src="https://img.shields.io/badge/Plinko%20Labs-Built%20By-e11d48?style=for-the-badge" alt="plinko labs" />
 
