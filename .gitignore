@@ -1,0 +1,5 @@
+/Packages
+/DevPackages
+*.rbxl
+*.rbxlx
+*.rbxl.lock
