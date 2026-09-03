@@ -1,7 +1,7 @@
 --!strict
 -- Trellis
 -- Scheduler.luau
--- Plinko Labs
+-- Valence
 --
 -- The engine behind Req "Heart". Owns ONE connection per driver for the whole app
 -- and dispatches to every module that asked for a heartbeat -- forty modules cost

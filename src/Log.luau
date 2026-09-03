@@ -1,7 +1,7 @@
 --!nonstrict
 -- Trellis
 -- Log.luau
--- Plinko Labs
+-- Valence
 --
 -- Every event crosses the Junction, so a ring buffer per path is nearly free -- and
 -- dumping it when a module errors turns "it broke somehow" into a transcript.

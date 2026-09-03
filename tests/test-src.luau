@@ -1,63 +1,14 @@
--- Lune harness for Src.luau — the bus over Registry + Junction: verbs vs Kind,
--- (payload, from), destination filtering, fences, remotes, teardown.
+-- The bus over Registry + Junction: verbs against Kind, (payload, from), destination
+-- filtering, schemas, rate limits, fences, remotes, teardown.
 
-local fs = require("@lune/fs")
-local luau = require("@lune/luau")
-local process = require("@lune/process")
+local H = require("./harness")
+local T = H.suite("Src")
 
-local warnings = {}
-local scheduled = {}
+local Junction = H.src("Junction")
+local Reaction = H.src("Reaction")
+local Src = H.src("Src")
 
-local ENV = {
-	setmetatable = setmetatable,
-	getmetatable = getmetatable,
-	string = string,
-	table = table,
-	type = type,
-	pcall = pcall,
-	error = error,
-	tostring = tostring,
-	print = print,
-	os = { clock = function()
-		return _G.NOW or 0
-	end },
-	task = {
-		spawn = function(fn, ...)
-			fn(...)
-		end,
-		delay = function(t, fn)
-			table.insert(scheduled, { At = t, Fn = fn })
-		end,
-		wait = function() end,
-	},
-}
-
-local function load(path, extra)
-	local env = {}
-	for k, v in ENV do
-		env[k] = v
-	end
-	for k, v in extra or {} do
-		env[k] = v
-	end
-	env.warn = function(m)
-		table.insert(warnings, m)
-	end
-	return luau.load(fs.readFile(path), { environment = env })()
-end
-
-local SCRIPT = { Parent = setmetatable({}, { __index = function(_, k)
-	return k
-end }) }
-
-local Schema = load("../src/Schema.luau")
-local Reaction = load("../src/Reaction.luau")
-local function deps(name)
-	return ({ Schema = Schema, Reaction = Reaction })[name]
-end
-
-local Junction = load("../src/Junction.luau", { require = deps, script = SCRIPT })
-local Src = load("../src/Src.luau", { require = deps, script = SCRIPT })
+local check, expectError = T.check, T.throws
 
 -- ============================================================== remote stubs ===
 
@@ -154,27 +105,6 @@ end
 
 -- ==================================================================== tests ===
 
-local passed, failed = 0, 0
-local function check(label, ok, detail)
-	if ok then
-		passed += 1
-		print(string.format("  ok   %s", label))
-	else
-		failed += 1
-		print(string.format("  FAIL %s%s", label, detail and ("  -> " .. tostring(detail)) or ""))
-	end
-end
-local function expectError(label, fn, fragment)
-	local ok, err = pcall(fn)
-	if ok then
-		check(label, false, "expected an error, got none")
-		return
-	end
-	check(label, string.find(tostring(err), fragment, 1, true) ~= nil, err)
-end
-
-print("\nSrc\n")
-
 -- verbs vs Kind -------------------------------------------------------------------
 do
 	local _, _, make = build("Server")
@@ -219,12 +149,12 @@ do
 		hits.Input += 1
 	end)
 
-	warnings = {}
+	H.warnings.clear()
 	other:Local("Input"):Subscribe("Held", function()
 		hits.Other += 1
 	end)
 	check("subscribing to an event routed elsewhere warns", (function()
-		for _, w in warnings do
+		for _, w in H.warnings.peek() do
 			if string.find(w, "routes it to InputController -- it will never fire", 1, true) then
 				return true
 			end
@@ -359,11 +289,11 @@ do
 	check("a payload passing every fence is delivered", delivered == 1, delivered)
 	check("all fencers ran", shapeChecks == 1 and rateChecks == 1)
 
-	warnings = {}
+	H.warnings.clear()
 	remote:Receive({ Name = "Ada" }, { n = 99 })
 	check("one refusing fence blocks delivery", delivered == 1, delivered)
 	check("...and the reason is reported", (function()
-		for _, w in warnings do
+		for _, w in H.warnings.peek() do
 			if string.find(w, "refused: rate", 1, true) then
 				return true
 			end
@@ -432,7 +362,7 @@ do
 	pending:Timeout(5):Toss(function(e)
 		timedOut = e
 	end)
-	scheduled[#scheduled].Fn()
+	H.fireDelayed()
 	check("Reaction:Timeout rejects", timedOut == "timeout", timedOut)
 end
 
@@ -451,17 +381,17 @@ do
 	remote:Receive(ada, { Combo = 3, Style = "Light" })
 	check("a valid payload is delivered", got == 1, got)
 
-	warnings = {}
+	H.warnings.clear()
 	remote:Receive(ada, { Combo = 9 })
 	check("a payload outside Min/Max never reaches the handler", got == 1, got)
 	check("...and the reason names the field", (function()
-		for _, w in warnings do
+		for _, w in H.warnings.peek() do
 			if string.find(w, "Combo must be <= 5", 1, true) then
 				return true
 			end
 		end
 		return false
-	end)(), warnings[1])
+	end)(), H.warnings.peek()[1])
 
 	remote:Receive(ada, "not a table")
 	check("a payload of the wrong type is rejected", got == 1, got)
@@ -475,7 +405,7 @@ end
 
 -- declarative rate limits -----------------------------------------------------------
 do
-	_G.NOW = 100
+	H.clock.set(100)
 	local j, _, make = build("Server")
 	local src = make("GuardManager")
 	local got = 0
@@ -490,35 +420,32 @@ do
 	remote:Receive(ada, {})
 	check("calls within the budget pass", got == 2, got)
 
-	warnings = {}
+	H.warnings.clear()
 	remote:Receive(ada, {})
 	check("the call over budget is dropped", got == 2, got)
 	check("...naming the fence and the budget", (function()
-		for _, w in warnings do
+		for _, w in H.warnings.peek() do
 			if string.find(w, 'rate: fence "Throttle" allows 2 per 1s', 1, true) then
 				return true
 			end
 		end
 		return false
-	end)(), warnings[1])
+	end)(), H.warnings.peek()[1])
 
 	remote:Receive(lin, {})
 	check("the budget is PER PLAYER", got == 3, got)
 
-	_G.NOW = 102
+	H.clock.set(102)
 	remote:Receive(ada, {})
 	check("the window resets", got == 4, got)
 
 	-- internal traffic is not rate limited: `from` is nil, so there is no budget
-	_G.NOW = 200
+	H.clock.set(200)
 	for _ = 1, 10 do
 		remote:Receive(nil, {})
 	end
 	check("internal traffic is never rate limited", got == 14, got)
-	_G.NOW = 0
+	H.clock.set(0)
 end
 
-print(string.format("\n%d passed, %d failed\n", passed, failed))
-if failed > 0 then
-	process.exit(1)
-end
+T.done()

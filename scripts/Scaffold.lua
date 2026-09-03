@@ -1,6 +1,6 @@
 -- Trellis
 -- scripts/Scaffold.lua
--- Plinko Labs
+-- Valence
 --
 -- PASTE THIS INTO THE STUDIO COMMAND BAR.
 --

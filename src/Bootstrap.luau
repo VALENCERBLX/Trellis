@@ -1,7 +1,7 @@
 --!nonstrict
 -- Trellis
 -- Bootstrap.luau
--- Plinko Labs
+-- Valence
 --
 -- Configure. One call per side, and the only entry point the game touches.
 --

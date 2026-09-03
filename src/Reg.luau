@@ -1,7 +1,7 @@
 --!nonstrict
 -- Trellis
 -- Reg.luau
--- Plinko Labs
+-- Valence
 --
 -- The global cache. A TREE, not a flat store -- Cat is CATEGORY.
 --

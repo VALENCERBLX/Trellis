@@ -1,7 +1,7 @@
 --!nonstrict
 -- Trellis
 -- Tenv.luau
--- Plinko Labs
+-- Valence
 --
 -- `Trellis.__Tenv_(spec)` -- a whole app booted with no Roblox instances at all.
 -- Plain-Lua signals for every channel, fake players, and a clock YOU advance, so a

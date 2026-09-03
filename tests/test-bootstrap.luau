@@ -1,119 +1,13 @@
--- Lune harness for Bootstrap.luau — boots a whole fake game and asserts the
--- SEQUENCE: preload, junction, order, inject, start, install, arm, ready.
+-- The boot sequence end to end: preload, junction, order, inject, start, install,
+-- arm, ready -- and the failures that must happen at boot rather than at runtime.
 
-local fs = require("@lune/fs")
-local luau = require("@lune/luau")
-local process = require("@lune/process")
+local H = require("./harness")
+local T = H.suite("Bootstrap")
 
--- ============================================================ Instance stubs ===
+local Bootstrap = H.src("Bootstrap")
 
-local MODULE_VALUES = {}
-local Instance_mt = {}
-Instance_mt.__index = Instance_mt
-function Instance_mt:GetChildren()
-	return self._children
-end
-function Instance_mt:IsA(c)
-	return self.ClassName == c
-end
-function Instance_mt:GetFullName()
-	local parts, n = {}, self
-	while n do
-		table.insert(parts, 1, n.Name)
-		n = n._parent
-	end
-	return table.concat(parts, ".")
-end
-
-local function make(class, name, children)
-	local i = setmetatable({ ClassName = class, Name = name, _children = {} }, Instance_mt)
-	for _, c in children or {} do
-		c._parent = i
-		table.insert(i._children, c)
-	end
-	return i
-end
-local function folder(n, c)
-	return make("Folder", n, c)
-end
-local function module(n, v)
-	assert(v ~= nil, "module(" .. n .. ") given a nil value -- declared after use?")
-	local m = make("ModuleScript", n, {})
-	MODULE_VALUES[m] = v
-	return m
-end
-
--- ============================================================== module loader ===
-
-local ENV = {
-	os = { clock = function()
-		return 0
-	end },
-	setmetatable = setmetatable,
-	getmetatable = getmetatable,
-	rawget = rawget,
-	string = string,
-	table = table,
-	type = type,
-	pcall = pcall,
-	error = error,
-	tostring = tostring,
-	print = print,
-	ipairs = ipairs,
-	pairs = pairs,
-}
-
-local warnings = {}
-local function load(path, extra)
-	local env = {}
-	for k, v in ENV do
-		env[k] = v
-	end
-	for k, v in extra or {} do
-		env[k] = v
-	end
-	env.warn = function(m)
-		table.insert(warnings, m)
-	end
-	local src = fs.readFile(path)
-	src = src:gsub("require%(script%.Parent%.Types%)", 'require("TYPES")')
-	return luau.load(src, { environment = env })()
-end
-
-local Registry = load("../src/Registry.luau", {
-	require = function(t)
-		if t == "TYPES" then
-			return {}
-		end
-		if MODULE_VALUES[t] ~= nil then
-			return MODULE_VALUES[t]
-		end
-		error("unknown require target")
-	end,
-})
-local SCRIPT = { Parent = setmetatable({}, { __index = function(_, k)
-	return k
-end }) }
-
-local DEPS = {}
-local function deps(name)
-	return DEPS[name]
-end
-
-DEPS.Schema = load("../src/Schema.luau")
-DEPS.Reaction = load("../src/Reaction.luau")
-DEPS.Trove = load("../src/Trove.luau")
-DEPS.Log = load("../src/Log.luau", { os = { clock = function()
-	return 0
-end } })
-DEPS.Junction = load("../src/Junction.luau", { require = deps, script = SCRIPT })
-DEPS.Scheduler = load("../src/Scheduler.luau")
-DEPS.Reg = load("../src/Reg.luau", { require = deps, script = SCRIPT })
-DEPS.Inspect = load("../src/Inspect.luau")
-DEPS.Registry = nil -- assigned below, it needs its own require stub
-
-local Junction = DEPS.Junction
-local Scheduler = DEPS.Scheduler
+local check, expectError = T.check, T.throws
+local folder, module = H.folder, H.module
 
 -- ================================================================== the game ===
 
@@ -250,6 +144,7 @@ local function opts(overrides)
 
 	local o = {
 		Side = "Server",
+		Loader = H.loader,
 		Players = players,
 		CollectionService = {
 			GetInstanceAddedSignal = function()
@@ -303,39 +198,8 @@ local function opts(overrides)
 	return o
 end
 
-DEPS.Registry = Registry
-
-local Bootstrap = load("../src/Bootstrap.luau", {
-	require = deps,
-	script = SCRIPT,
-	task = {
-		spawn = function(fn, ...)
-			fn(...)
-		end,
-	},
-	game = { GetService = function() error("no live services in the harness") end },
-})
-
 -- ==================================================================== running ===
 
-local passed, failed = 0, 0
-local function check(label, ok, detail)
-	if ok then
-		passed += 1
-		print(string.format("  ok   %s", label))
-	else
-		failed += 1
-		print(string.format("  FAIL %s%s", label, detail and ("  -> " .. tostring(detail)) or ""))
-	end
-end
-local function expectError(label, fn, fragment)
-	local ok, err = pcall(fn)
-	if ok then
-		check(label, false, "expected an error, got none")
-		return
-	end
-	check(label, string.find(tostring(err), fragment, 1, true) ~= nil, err)
-end
 local function indexOf(entry)
 	for i, v in log do
 		if v == entry then
@@ -344,8 +208,6 @@ local function indexOf(entry)
 	end
 	return nil
 end
-
-print("\nBootstrap\n")
 
 local MODS = buildModules()
 local app = Bootstrap.Configure({ Hierarchy = hierarchy(MODS) }, opts())
@@ -358,7 +220,7 @@ check("BootOrder found in the Config bin", app.Order[1] == "MemoryService")
 check("tiers boot in order", table.concat(app.Order, ",") == "MemoryService,SessionManager,StateManager,CombatManager,LonelyManager", table.concat(app.Order, ","))
 check("a module absent from BootOrder boots last", app.Order[#app.Order] == "LonelyManager")
 check("...and it is warned about", (function()
-	for _, w in warnings do
+	for _, w in H.warnings.peek() do
 		if string.find(w, "not in BootOrder, booting last: LonelyManager", 1, true) then
 			return true
 		end
@@ -449,14 +311,14 @@ end, "Configure needs a Hierarchy")
 
 -- a hook with no Req is dead code, and says so
 do
-	warnings = {}
+	H.warnings.clear()
 	local dead = gameModule("DeadManager")
 	dead.Heartbeat = function() end
 	local h = hierarchy(nil, { module("DeadManager", dead) })
 	Bootstrap.Configure({ Hierarchy = h }, opts())
 
 	check("a hook without its Req warns as dead code", (function()
-		for _, w in warnings do
+		for _, w in H.warnings.peek() do
 			if string.find(w, 'DeadManager defines :Heartbeat but never asked for Req "Heart"', 1, true) then
 				return true
 			end
@@ -563,7 +425,4 @@ do
 	end, 'duplicate Service "GhostService", mounted from:')
 end
 
-print(string.format("\n%d passed, %d failed\n", passed, failed))
-if failed > 0 then
-	process.exit(1)
-end
+T.done()

@@ -1,60 +1,14 @@
--- Lune harness for the support modules: Trove, Log and Reaction.
+-- The support modules: Trove, Log and Reaction.
 
-local fs = require("@lune/fs")
-local luau = require("@lune/luau")
-local process = require("@lune/process")
+local H = require("./harness")
+local T = H.suite("Support")
 
-local warnings = {}
-local scheduled = {}
-local NOW = 0
+local Trove = H.src("Trove")
+local Log = H.src("Log")
+local Reaction = H.src("Reaction")
 
-local function load(name)
-	return luau.load(fs.readFile("../src/" .. name .. ".luau"), {
-		environment = {
-			setmetatable = setmetatable,
-			string = string,
-			table = table,
-			math = math,
-			type = type,
-			pcall = pcall,
-			error = error,
-			tostring = tostring,
-			print = print,
-			os = { clock = function()
-				return NOW
-			end },
-			task = {
-				spawn = function(fn, ...)
-					fn(...)
-				end,
-				delay = function(t, fn)
-					table.insert(scheduled, fn)
-				end,
-				wait = function() end,
-			},
-			warn = function(m)
-				table.insert(warnings, m)
-			end,
-		},
-	})()
-end
+local check = T.check
 
-local Trove = load("Trove")
-local Log = load("Log")
-local Reaction = load("Reaction")
-
-local passed, failed = 0, 0
-local function check(label, ok, detail)
-	if ok then
-		passed += 1
-		print(string.format("  ok   %s", label))
-	else
-		failed += 1
-		print(string.format("  FAIL %s%s", label, detail and ("  -> " .. tostring(detail)) or ""))
-	end
-end
-
-print("\nSupport\n")
 
 -- ======================================================================= Trove ===
 do
@@ -121,7 +75,7 @@ do
 	t5:Clean()
 	check("adding during teardown cleans immediately", lateCleaned)
 
-	warnings = {}
+	H.warnings.clear()
 	local t6 = Trove.new()
 	t6:Add(function()
 		error("boom")
@@ -132,7 +86,7 @@ do
 	end)
 	t6:Clean()
 	check("one erroring item does not stop the rest", survived)
-	check("...and it is reported", #warnings == 1, #warnings)
+	check("...and it is reported", #H.warnings.peek() == 1, #H.warnings.peek())
 
 	local t7 = Trove.new()
 	local tracked = false
@@ -145,7 +99,7 @@ end
 
 -- ========================================================================= Log ===
 do
-	NOW = 0
+	H.clock.set(0)
 	local log = Log.new(3)
 
 	log:Event("Network.Combat.Swing", { Combo = 2 }, { Name = "Ada" })
@@ -156,7 +110,7 @@ do
 	check("counts events per path", stats[1].Count == 2, stats[1].Count)
 	check("...and refusals separately", stats[1].Refused == 1, stats[1].Refused)
 
-	NOW = 2
+	H.clock.set(2)
 	check("rate is per second", math.abs(log:Stats()[1].Rate - 1) < 0.01, log:Stats()[1].Rate)
 
 	for i = 1, 5 do
@@ -241,26 +195,23 @@ do
 	end)
 	check("an erroring executor rejects", threw ~= nil)
 
-	scheduled = {}
+	H.delayed = {}
 	local timedOut
 	Reaction.new(function() end):Timeout(1, "too slow"):Toss(function(e)
 		timedOut = e
 	end)
-	scheduled[1]()
+	H.fireDelayed()
 	check("Timeout uses the given reason", timedOut == "too slow", timedOut)
 
-	scheduled = {}
+	H.delayed = {}
 	local late
 	local done = Reaction.resolve("v")
 	done:Timeout(1)
-	scheduled[1]()
+	H.fireDelayed()
 	done:Next(function(v)
 		late = v
 	end)
 	check("Timeout cannot un-settle a finished Reaction", late == "v", late)
 end
 
-print(string.format("\n%d passed, %d failed\n", passed, failed))
-if failed > 0 then
-	process.exit(1)
-end
+T.done()

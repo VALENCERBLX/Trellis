@@ -1,7 +1,7 @@
 --!nonstrict
 -- Trellis
 -- Reaction.luau
--- Plinko Labs
+-- Valence
 --
 -- The deferred handle returned by :Resolve and :Await. PascalCase throughout, so it
 -- reads like the rest of the framework:

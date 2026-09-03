@@ -1,7 +1,7 @@
 --!nonstrict
 -- Trellis
 -- Src.luau
--- Plinko Labs
+-- Valence
 --
 -- The injected context. One per module, bound to that module's name, and the only
 -- surface a Controller / Manager / Service talks through.

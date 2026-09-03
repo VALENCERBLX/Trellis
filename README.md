@@ -1,228 +1,272 @@
 <div align="center">
 
-# Trellis
+```
+ ████████ ██████  ███████ ██      ██      ██ ███████
+    ██    ██   ██ ██      ██      ██      ██ ██
+    ██    ██████  █████   ██      ██      ██ ███████
+    ██    ██   ██ ██      ██      ██      ██      ██
+    ██    ██   ██ ███████ ███████ ███████ ██ ███████
+```
 
-**A subset of Single Script Architecture for Roblox.**
-The hierarchy you hand it *is* the API. Every event is declared. Everything expensive is opt-in.
+**A game framework for Roblox. The folder tree you hand it becomes the API.**
 
-<img src="https://img.shields.io/badge/Trellis-v0.1.0-3EA6A6?style=for-the-badge" alt="version" />
-<img src="https://img.shields.io/badge/Luau-Roblox-00A2FF?style=for-the-badge" alt="luau" />
-<img src="https://img.shields.io/badge/tests-311-22c55e?style=for-the-badge" alt="tests" />
-<img src="https://img.shields.io/badge/License-MIT-666?style=for-the-badge" alt="license" />
-<img src="https://img.shields.io/badge/Plinko%20Labs-Built%20By-e11d48?style=for-the-badge" alt="plinko labs" />
+![Version](https://img.shields.io/badge/version-0.1.0-6C3EF4?style=for-the-badge)
+![Luau](https://img.shields.io/badge/Luau-Roblox-A78BFA?style=for-the-badge)
+![Tests](https://img.shields.io/badge/tests-324-6C3EF4?style=for-the-badge)
+![License](https://img.shields.io/badge/license-MIT-6C3EF4?style=for-the-badge)
 
 </div>
 
 ---
 
-## The whole Bootstrap
+Trellis is a subset of Single Script Architecture. One Bootstrap per side owns the
+lifecycle, every event is declared in one map, and modules never require each other.
+
+What makes it a *subset* rather than another SSA framework: the dependency-injection
+surface is **derived from your hierarchy** instead of hand-registered, and anything
+with a runtime cost is **opt-in** rather than injected into everything.
 
 ```lua
 local Trellis = require(ReplicatedStorage.Packages.Trellis)
 
 local app = Trellis.Configure({
-	Hierarchy = {
-		ReplicatedStorage.Shared.Modules,   -- Packages, Utility, Config, Services
-		ServerScriptService.Server,         -- Managers, server Services
-	},
+    Hierarchy = {
+        ReplicatedStorage.Shared.Modules,   -- Packages, Utility, Config, Services
+        ServerScriptService.Server,         -- Managers, server Services
+    },
 })
 ```
 
-That's the entire server entry point. The client is the same call with its own root. `Junction`, `BootOrder` and `Registers` are found in the `Config` bin **by name** — because the registry already derived that bin from your tree, there is nothing left to hand it separately.
+That is the whole server entry point. The client is the same call with its own root.
+Nothing else in the game touches the framework.
 
 ---
 
-## Five pillars
+## Installation
 
-| | |
-|---|---|
-| **Registry** | Dependency injection whose surface is *derived* from your hierarchy. |
-| **Junction** | Every event declared once: namespace, kind, destination, schema. |
-| **Src** | The only surface a module talks through. |
-| **Reg** | A replicating register tree with declared authority. |
-| **Capabilities** | `Req` — a module asks for what costs something; `BootOrder` tunes it. |
+```toml
+# wally.toml
+[dependencies]
+Trellis = "valence/trellis@0.1.0"
+```
+
+```sh
+wally install
+```
+
+Trellis has no dependencies. To scaffold a project around it, paste
+[`scripts/Scaffold.lua`](scripts/Scaffold.lua) into the Studio command bar — it lays
+down the recommended layout, fills it with a small working game, and prints a
+pass/fail line per subsystem when you press Play.
 
 ---
 
-## 1 · The hierarchy is the API
+## The idea
 
-Every direct child folder of every root becomes a **bin**, and every bin generates its own getter from the singular of its name:
+Every direct child folder of every root becomes a **bin**, and each bin generates its
+own getter from the singular of its name.
 
 ```
 Shared/Modules/
-  Packages/     ->  Src:GetPackage("Lume")     ==  Src.Main.Packages.Lume
-  Utility/      ->  Src:GetUtility("Maid")     ==  Src.Main.Utility.Maid
-  Config/       ->  Src:GetConfig("Manifests")
-  Services/     ->  Src:GetService("Combat")
+  Packages/   ->  Src:GetPackage("Lume")      ==  Src.Main.Packages.Lume
+  Utility/    ->  Src:GetUtility("Maid")      ==  Src.Main.Utility.Maid
+  Config/     ->  Src:GetConfig("Manifests")
+  Services/   ->  Src:GetService("Combat")
 ```
 
-Add a `Config/` folder and `:GetConfig` appears. No registration, no framework change.
+Add a `Config/` folder and `:GetConfig` exists. There is no registration step and no
+framework change. It follows that `Junction`, `BootOrder` and `Registers` need not be
+passed to `Configure` at all — they are modules in the `Config` bin, found by name.
 
-- **Only direct children are scanned**, so `Packages/Icon/Packages` stays Icon's private business and can never collide with yours.
-- **A name mounted twice is a boot error** naming both full paths — never a silent `FindFirstChild` win.
-- **Entries resolve under both names**: `GetService("Combat")` and `GetService("CombatService")`.
-- **Role shape is not special-cased.** A Controller has no `:GetManager` because the client roots have no `Managers/` folder. Calling a bin that isn't there errors naming the bins that are.
+A Controller has no `:GetManager`, because the client roots contain no `Managers/`
+folder. That is not a special case in the code; it falls out of which tree that side
+was handed.
 
-Luau can't type generated methods, so that cost is paid once by codegen:
+Four rules keep it honest:
+
+- Only direct children are scanned, so a package's own nested `Packages/` folder stays
+  private and can never collide with yours.
+- A name mounted twice across two roots is a boot error naming both full paths.
+- Entries resolve under their full name and their name minus the bin suffix, so
+  `GetService("Combat")` and `GetService("CombatService")` are the same module.
+- Calling a bin that does not exist on this side errors, listing the bins that do.
+
+Luau cannot type generated methods. That cost is paid once, by codegen:
 
 ```sh
-lune run scripts/types -- src/Shared/Modules src/Server --out src/Shared/Modules/Config/Generated.luau
+lune run scripts/types -- src/Shared/Modules src/Server \
+    --out src/Shared/Modules/Config/Generated.luau
 ```
 
 ```lua
-function CombatManager:Start(Src: Generated.Src) end   -- :GetService( now autocompletes
+function CombatManager:Start(Src: Generated.Src) end   -- :GetService( autocompletes
 ```
 
 ---
 
-## 2 · The Junction
+## The Junction
+
+Every event in the game is declared once, with its transport, its destination and the
+shape of its payload.
 
 ```lua
 Junction.Network = {
-	Combat = {
-		Swing = {
-			Destination = "CombatManager",
-			Schema = { Combo = { Type = "number", Min = 1, Max = 5 } },
-		},
-		Hit = {},
-	},
-	Session = {
-		Get = { Kind = "Resolve", Destination = "SessionManager" },
-	},
+    Combat = {
+        Swing = {
+            Destination = "CombatManager",
+            Schema = { Combo = { Type = "number", Min = 1, Max = 5 } },
+        },
+        Hit = {},
+    },
+    Session = {
+        Get = { Kind = "Resolve", Destination = "SessionManager" },
+    },
 }
 
 Junction.Local = {
-	State = {
-		Defaults = { Side = "Server" },
-		Entered = {}, Exited = {},
-	},
-	Animation = {
-		Defaults = { Destination = "AnimationService" },
-		Play = {}, Stop = {},
-		MarkerReached = { Destination = "any" },   -- opts out of the inherited one
-	},
+    Animation = {
+        Defaults = { Destination = "AnimationService" },
+        Play = {}, Stop = {},
+        MarkerReached = { Destination = "any" },
+    },
 }
 
 Junction.Fence = {
-	Combat = { Events = { "Network.Combat" }, Rate = 20, Per = 1 },
+    Combat = { Events = { "Network.Combat" }, Rate = 20, Per = 1 },
 }
 ```
 
 Two words cover four transports:
 
 | | `Kind = "Static"` | `Kind = "Resolve"` |
-|---|---|---|
+| --- | --- | --- |
 | **`Junction.Local`** | BindableEvent | BindableFunction |
 | **`Junction.Network`** | RemoteEvent | RemoteFunction |
 
-**Entries materialize into real instances** mirroring the map's nesting — `ReplicatedStorage/Junction/Combat/Swing`. The server creates them, the client waits for the same paths. The channel name leaves the wire, every RemoteFunction gets its own `OnServerInvoke` instead of a hand-rolled dispatch, and Studio's Explorer shows your live topology.
+Network entries **materialize into real instances** mirroring the map's nesting, at
+`ReplicatedStorage/Junction/Combat/Swing`. The server creates them; the client waits
+for the same paths. Three things follow. The channel name never goes on the wire.
+Every RemoteFunction gets its own `OnServerInvoke` instead of a hand-rolled dispatch
+table. And the Explorer shows the live topology while the game runs.
 
-**Local entries are plain-Lua signals** by default. `BindableEvent:Fire` deep-copies its arguments — metatables stripped, mixed keys mangled — which silently breaks any payload carrying a class instance or a thenable. Set `Instanced = true` on an entry when you actually want the Explorer node.
+Local entries are plain-Lua signals by default. `BindableEvent:Fire` serializes its
+arguments — metatables stripped, table identity lost, mixed keys mangled — which
+silently breaks any payload carrying a class instance or a promise. Set
+`Instanced = true` on an entry when you want the Explorer node anyway.
 
-**Defaults inherit per domain.** `Defaults = { Side = "Server" }` reaches every entry; a per-entry field overrides; `Destination = "any"` clears an inherited one. The exceptions become the lines that carry text.
+A domain-level `Defaults` table is inherited by every entry in it. Per-entry fields
+override, and `Destination = "any"` clears an inherited one. In practice this turns
+the exceptions into the only lines carrying text.
+
+Read more: [docs/junction.md](docs/junction.md)
 
 ---
 
-## 3 · Src
+## Src
+
+`Src` is the injected context and the only surface a module talks through. It is
+mirrored onto the module, so it is reachable from every method rather than only from
+`:Start`.
 
 ```lua
 function CombatManager:Start(Src)
-	Src:Network("Combat"):Subscribe("Swing", function(payload, from)
-		if not from then return end        -- nil means internal, therefore trusted
-		self:Apply(from, payload)
-	end)
+    Src:Network("Combat"):Subscribe("Swing", function(payload, from)
+        if not from then return end          -- nil means internal, so trusted
+        self:Apply(from, payload)
+    end)
 
-	Src:Network("Session"):Respond("Get", function(payload, from)
-		return Src:Reg("Session", from):Access("Stats.Health")
-	end)
-
-	Src:Local("Round"):Post("Began", { round = 1 })
+    Src:Network("Session"):Respond("Get", function(_, from)
+        return Src:Reg("Session", from):Access("Stats")
+    end)
 end
 ```
 
 | | |
-|---|---|
+| --- | --- |
 | Identity | `Src.Name` `Src.Role` `Src.Side` `Src.Player` `Src.Main` |
 | Bus | `:Local(domain)` `:Network(domain)` |
-| Static | `:Post` `:Subscribe` `:Once` — plus `:PostTo` `:PostAll` `:PostExcept` on Network |
-| Resolve | `:Resolve` `:Respond` — plus `:ResolveFrom(player, …)` on the server |
+| Static | `:Post` `:Subscribe` `:Once`, plus `:PostTo` `:PostAll` `:PostExcept` |
+| Resolve | `:Resolve` `:Respond`, plus `:ResolveFrom(player, …)` on the server |
 | Cache | `:Reg(name)` `:Reg(name, player)` |
 | Timing | `:Await(path)` `:OnCleanup(fn)` `:Inspect()` |
-| By `Req` only | `Src.Trove` `:Delay` `:Every` `:Cancel` |
+| By `Req` | `Src.Trove` `:Delay` `:Every` `:Cancel` |
 
-`Src` is mirrored onto the module, so everything is reachable from every method, not just `:Start`. The framework's keys are reserved — a module defining `Main` or `Local` is a boot error, never a silent shadow.
+Event names are checked against the Junction when a handler binds, so a typo errors
+immediately and lists the domain's real events. Calling `:Post` on a `Resolve` entry
+is likewise an error rather than a confusing nil.
 
-**`from` is always the second parameter, never a field.** `Src` is a per-module singleton, so a shared `From` slot would be overwritten by the next event whenever a handler yields — and it is the value authority is gated on.
+**`from` is always the handler's second parameter and never a field.** `Src` is a
+per-module singleton, so a shared `From` slot would be overwritten by the next event
+whenever a handler yields — and `from` is the value authority is gated on. It is `nil`
+for anything that originated on this side.
 
-### At the edge
+Inbound payloads clear three gates before a handler sees them, cheapest first:
 
-Inbound payloads clear three gates before any handler sees them, cheapest first:
+1. **Rate** — the per-player budget the Fence declared. This runs first on purpose. A
+   flood of malformed payloads is exactly what a rate limit exists to stop, so
+   validating first would exempt garbage from the budget.
+2. **Schema** — declared on the entry. The rejection names the offending field.
+3. **Fences** — your own predicates. Several modules may fence one event and all must
+   pass, so a shape check and a rate limiter coexist without knowing about each other.
 
-1. **Rate** — the per-player budget the Fence declared. First deliberately: a flood of *malformed* payloads is exactly what a rate limit exists to stop, so validating first would exempt garbage from the budget.
-2. **Schema** — declared on the entry. Malformed traffic dies here, naming the offending field.
-3. **Fences** — your own predicates. Many modules may fence one event and all must pass, so a shape check and a rate limiter coexist without knowing about each other.
-
-```lua
-CombatManager.Req = { "Fence" }
-
-function CombatManager:Fence(event, payload, from)
-	if not from then return true end
-	return self:InRange(from, payload.Target), "range"
-end
-```
-
-Usually the **domain owner fences its own domain** — the module that knows what a valid `Swing` looks like is `CombatManager`. A separate module earns its place only for cross-cutting concerns, like one rate limiter over `Combat`, `Economy` and `Chat`.
+Read more: [docs/src.md](docs/src.md)
 
 ---
 
-## 4 · Reg
+## Reg
+
+A register is a replicating tree with declared authority.
 
 ```lua
 Registers = {
-	Session = {
-		Replicate = "Owner",
-		Persist = true,
-		Cats = { Stats = {}, Inventory = { Dynamic = true } },
-		Policies = { ["Stats.*"] = "Server", ["Settings.*"] = "Owner" },
-	},
-	Round = { Replicate = "All" },
-	Secrets = { Replicate = false },
+    Session = {
+        Replicate = "Owner",
+        Persist = true,
+        Cats = { Stats = {}, Inventory = { Dynamic = true } },
+        Policies = { ["Stats.*"] = "Server", ["Settings.*"] = "Owner" },
+    },
+    Round = { Replicate = "All" },
+    Secrets = { Replicate = false },
 }
 ```
 
 ```lua
 local Reg = Src:Reg("Session", player)
 
-Reg:New("Stats.Health", 100)      Reg:Access("Stats.Health")
-Reg:Edit("Stats", { Mana = 5 })   Reg:Bubble("Stats", fn)
-Reg:Swap("Stats.Health", 50)      Reg:Rem("Stats.Health")
-local Bag = Reg:Cat("Inventory")  -- scopes in, like Src:Local(domain)
+Reg:New("Stats.Health", 100)       Reg:Access("Stats.Health")
+Reg:Edit("Stats", { Mana = 5 })    Reg:Bubble("Stats", fn)
+Reg:Swap("Stats.Health", 50)       Reg:Rem("Stats.Health")
+local Bag = Reg:Cat("Inventory")
 ```
 
-**A tree, not a flat store.** `Cat` is *category*, and it is the **only** thing that creates one. `Access` and `Edit` traverse existing categories and throw on a path that doesn't resolve, naming the failed segment and listing its real siblings — so a typo'd write can't grow a phantom branch. A missing *value* still reads as `nil`; a missing *category* is a structural error.
+`Cat` means category, and it is the only thing that creates one. `Access` and `Edit`
+walk existing categories and throw on a path that does not resolve, naming the segment
+that failed and listing its siblings. Without that rule, one typo grows a phantom
+branch and you are back to a bag of strings. A missing *value* still reads as `nil`;
+a value may legitimately be unset, while a missing category is a structural mistake.
 
-**`Edit` merges, `Swap` replaces.** `Edit` recurses, so keys you didn't mention survive. You cannot delete a field with `Edit` — a `nil` in a Lua table isn't a key at all — so use `Swap` or `Rem`.
+The five mutation verbs are the replication protocol — each one is a path-shaped delta
+`{ Op, Reg, Owner, Path, Value }`. Reads never leave the local mirror, which is why
+`Access` and `Bubble` sit outside that set.
 
-**The five mutation verbs are the replication protocol.** Each is a path-shaped delta `{ Op, Reg, Owner, Path, Value }`. Reads never leave the local mirror, which is why `Access` and `Bubble` sit outside that set.
+A client mutation is a request rather than a write. The server checks the path against
+`Policies`, applies it, and echoes the authoritative delta. **A path matching no policy
+is server-only**, so forgetting to write a policy fails closed. Every verb returns a
+promise on both sides, so a side-split Service can move sides without a rewrite.
 
-**Authority is deny-by-default.** A client mutation is a *request*: the server checks the path against `Policies` and echoes the authoritative delta. A path matching no policy is server-only. Every verb returns a thenable on **both** sides, so a side-split Service can move sides without a rewrite.
-
-```lua
-Reg:Swap("Settings.Volume", 8, { Predict = true })   -- applies now, rolls back if refused
-```
-
-**`Bubble` bubbles.** A watcher on `"Stats"` fires for `"Stats.Health"` and is handed `(value, path, op)`.
-
-**`Persist = true`** saves through a backend you supply (`Configure{ Store = … }`), flushes on player leave and on `app:Stop`, and hydrates on rejoin. Only values are stored, so the declared `Cats` shape is always the current one.
+Read more: [docs/registers.md](docs/registers.md)
 
 ---
 
-## 5 · Capabilities
+## Capabilities
 
-A module declares what it needs; the deployment says how much of it. `Req` is only for things that **cost something at runtime or need configuration** — a hook that's merely called once if defined costs nothing when absent and needs no declaring.
+A module declares what it needs. The deployment decides how much of it. `Req` covers
+only things that cost something at runtime or need per-deployment configuration —
+a hook that is simply called once if you defined it costs nothing when absent and
+should not need declaring.
 
 | `Req` | Installs | Configured by |
-|---|---|---|
+| --- | --- | --- |
 | `Heart` | `:Heartbeat(dt)` | `Hz` |
 | `Player` | `:PlayerAdded` / `:PlayerRemoving` (server) | — |
 | `Tag` | `:TagAdded` / `:TagRemoved` | `Tags` |
@@ -231,24 +275,30 @@ A module declares what it needs; the deployment says how much of it. `Req` is on
 | `Trove` | `Src.Trove` | — |
 | `Profile` | every hook wrapped in `debug.profilebegin` | — |
 
-No `Req` needed: `:Start(Src)`, `:Stop()`, and `:Ready()` — which runs after *every* module has started.
+`:Start(Src)`, `:Stop()` and `:Ready()` need no `Req`. `:Ready` runs once every module
+on that side has started, which is the timing question modules actually have.
 
 ```lua
 local StateManager = {}
 StateManager.Req = { "Heart", "Trove" }
 
 function StateManager:Start(Src)
-	self.Trove:Add(workspace.ChildAdded:Connect(fn))   -- no :Stop needed
+    self.Trove:Add(workspace.ChildAdded:Connect(fn))   -- no :Stop needed
 end
 
 function StateManager:Heartbeat(dt) end                -- rate lives in BootOrder
 ```
 
-**`Player` and `Tag` replay their backlog** at install: players who joined and instances already tagged before the module booted go through the same handler. Without that, a module that boots late misses them entirely — a bug that only shows on a live server.
+`Player` and `Tag` replay their backlog when they install: players who joined and
+instances already tagged before the module booted go through the same handler. Without
+that, a module which boots late misses them entirely, and that only shows up on a
+populated live server.
 
-**Timers are lifetime-bound.** They ride the scheduler's clock, not `task.delay`, so they cancel on `:Stop` and the commonest Roblox leak — a delayed call firing into a torn-down module — cannot happen.
+Timers ride the scheduler's clock rather than `task.delay`, so they cancel on `:Stop`.
+The commonest leak in Roblox code is a delayed call firing into a torn-down module,
+and this makes it structurally impossible instead of a matter of discipline.
 
-Three things are boot errors, not runtime surprises: a `Req` the module has no hook for, a hook with no matching `Req` (a warning — it would never be called), and `BootOrder.Config` tuning a capability the module never asked for.
+Read more: [docs/capabilities.md](docs/capabilities.md)
 
 ---
 
@@ -256,133 +306,138 @@ Three things are boot errors, not runtime surprises: a `Req` the module has no h
 
 ```lua
 return {
-	Order = {
-		{ "MemoryService", "SettingsService" },   -- one tier, no order among them
-		"SessionManager",
-		{ "StateManager", "CombatManager" },
-	},
-	Config = {
-		StateManager     = { Hz = 20 },
-		CameraController = { Hz = "Render" },     -- client only; errors on the server
-		PickupService    = { Tags = { "Pickup" } },
-		CombatManager    = { Hz = 30, Fences = { "Combat" } },
-	},
+    Order = {
+        { "MemoryService", "SettingsService" },   -- one tier, no order within it
+        "SessionManager",
+        { "StateManager", "CombatManager" },
+    },
+    Config = {
+        StateManager     = { Hz = 20 },
+        CameraController = { Hz = "Render" },
+        PickupService    = { Tags = { "Pickup" } },
+        CombatManager    = { Hz = 30, Fences = { "Combat" } },
+    },
 }
 ```
 
-Split by **concern** — `Order` is *when*, `Config` is *how*. The array index is the priority, so inserting a module is inserting a line; there are no numbers to renumber. **You only list what actually needs ordering** — anything absent boots after the last tier with one warning naming it.
+`Order` is when a module starts; `Config` is how it is set up when it does. The array
+index is the priority, so inserting a module means inserting a line rather than
+renumbering anything. Only list what genuinely needs ordering — everything else boots
+after the last tier, with one warning naming it.
 
-One scheduler owns **one connection per driver for the whole app**, and staggers phases with golden-ratio offsets so forty modules at `Hz = 10` don't all land on the same frame. Throttled `:Heartbeat` receives *accumulated* dt, so integration stays correct at any rate.
+One scheduler owns one connection per driver for the whole app and staggers phases
+with golden-ratio offsets, so forty modules at `Hz = 10` do not all land on the same
+frame. A throttled `:Heartbeat` receives accumulated dt, so integration stays correct
+at any rate.
 
 ---
 
 ## Double-sided Services
 
-One shared module can serve both sides:
+One module in a replicated container can serve both sides.
 
 ```lua
--- ReplicatedStorage/Shared/Modules/Services/CombatService   (must be replicated)
-function CombatService:Start() end        -- the SERVER half
+function CombatService:Start() end        -- the server half
 
-function CombatService:__Serve()          -- returns the CLIENT half
-	local Client = {}
-	function Client:Start() end
-	return Client
+function CombatService:__Serve()          -- returns the client half
+    local Client = {}
+    function Client:Start() end
+    return Client
 end
 ```
 
-**`__Serve` is a factory the client runs, not a table the server sends.** Server containers never replicate and functions don't cross remotes, so the client requires the same shared module and calls `__Serve` in its own VM. Two consequences: the module must live somewhere replicated — its server half is therefore readable by exploiters, so keep drop tables and anti-cheat thresholds in a Manager — and `__Serve` must be self-contained, because every upvalue it closes over is the client's copy.
+`__Serve` is a factory the client runs, not a table the server sends. Server containers
+never replicate and functions do not cross remotes, so the client requires the same
+shared module and calls `__Serve` in its own VM. Two consequences worth stating plainly:
+the module must live somewhere replicated, so its server half is readable by exploiters
+— keep drop tables and anti-cheat thresholds in a Manager — and `__Serve` must be
+self-contained, because every upvalue it closes over is the client's copy.
 
-Optionally a client host of the same name receives it:
+A client module of the same name may receive it instead:
 
 ```lua
--- StarterPlayerScripts/Client/Services/CombatService
 function CombatService:__Recip(served)
-	self.Served = served
+    self.Served = served
 end
 ```
 
-That same-name pairing is the one duplicate the registry tolerates.
+That pairing is the one duplicate name the registry tolerates.
 
 ---
 
-## The boot, in order
-
-1. **Side** — from RunService.
-2. **Registry** — walk `Hierarchy`, mount bins, apply `Inject`.
-3. **Config** — `Junction` / `BootOrder` / `Registers` from the `Config` bin.
-4. **Preload** — force-require the role bins, so a syntax error in module forty surfaces *here*. Side-filter in the same pass.
-5. **Junction** — parse, apply `Defaults`, derive each transport class, validate every `Destination`, resolve Fences, materialize.
-6. **Registers** — declared caches, policies, persistence.
-7. **Order** — tiers, then leftovers with a warning.
-8. **Inject** — validate `Req`, check reserved keys, build `Src`, grant `Trove`/`Timer`/`Profile`.
-9. **`:Start`** — in order, each wrapped so one module erroring can't abort the boot.
-10. **Install capabilities** — *after* `:Start`, so a module's state exists before its first callback. `Player` and `Tag` replay here.
-11. **Arm** — one connection per driver. **Nothing ticks before this line.**
-12. **`:Ready`** — every module, now that all of them are up.
+## Diagnostics
 
 ```lua
-app:Get("CombatManager")   app:List("Manager")
-app:Inspect()              -- the topology, as data
-app:Report()               -- the same thing as text: routes, listeners, fences, registers, traffic
-app:Log()                  -- the event ring buffer; :Dump() is what you paste into a bug report
-app:Restart()              -- tear down and boot again without leaving Play mode
-app:Stop()
+app:Report()    -- routes with their real listeners, fences, registers, traffic
+app:Inspect()   -- the same thing as data
+app:Log():Dump()
+app:Restart()   -- tear down and boot again without leaving Play mode
 ```
 
-`Configure{ Panel = true }` builds a live on-screen panel on the client, toggled with **F4**.
+`Configure{ Panel = true }` builds a live panel on the client, toggled with **F4**.
+`Configure{ Log = true }` keeps a ring buffer of the last events per path, summarized
+by shape rather than by reference so it cannot pin payloads in memory. `:Dump()` is
+what you paste into a bug report.
 
 ---
 
 ## Testing
 
-`__Tenv_` boots a whole app with no Roblox instances at all — plain-Lua channels, fake players, and a clock you advance:
+`__Tenv_` boots a whole app with no Roblox instances: plain-Lua channels, fake players,
+and a clock you advance by hand.
 
 ```lua
 local T = Trellis.__Tenv_({
-	Side      = "Server",
-	Junction  = require(Config.Junction),
-	BootOrder = require(Config.BootOrder),
-	Registers = require(Config.Registers),
-	Modules   = { Managers = { CombatManager = require(...) } },
+    Side      = "Server",
+    Junction  = require(Config.Junction),
+    BootOrder = require(Config.BootOrder),
+    Modules   = { Managers = { CombatManager = require(...) } },
 })
 
 local ada = T:Join("Ada")
-T:Send("Network.Combat.Swing", { Combo = 2 }, ada)   -- as if a client sent it
-T:Wait(1)                                            -- a second of frames
+T:Send("Network.Combat.Swing", { Combo = 2 }, ada)
+T:Wait(1)
 assert(#T:Sent("Network.Combat.Hit") == 1)
 T:Stop()
 ```
 
-| | |
-|---|---|
-| Clock | `:Step(dt)` `:Wait(seconds)` `:Now()` |
-| World | `:Join(name)` `:Leave(player)` `:Tag(inst, tag)` `:Untag(…)` |
-| Wire | `:Send(path, payload, from)` `:Answer(path, fn)` `:Sent(path)` `:Clear()` |
-| Access | `:Get(name)` `:Reg(name, owner)` `:Report()` `:Dump()` `:Stop()` |
+It runs under Lune, which means your game's modules are testable and not only the
+framework's.
 
-It runs under Lune, so **your game's modules become testable** — not just the framework's.
+Read more: [docs/testing.md](docs/testing.md)
 
 ---
 
-## Rules Trellis enforces
+## Status
 
-| | Rule | Enforced by |
-|---|---|---|
-| 1 | Never `require` another Controller / Manager / Service | convention (use `Src`) |
-| 2 | All inter-module talk goes through `Src` | the API surface |
-| 3 | Only Trellis touches Remotes and Bindables | materialization is the sole path |
-| 4 | The Junction is the only routing definition | boot validation, both sides |
-| 5 | A module may not shadow an injected key | boot error naming the key |
-| 6 | A `Req` must have its hook, and a hook its `Req` | boot error / warning |
-| 7 | Config may not tune a capability never asked for | boot error |
-| 8 | A client write to a register is a request, not a write | `Policies`, deny by default |
-| 9 | A Manager may call its own domain Service | `Src:GetService` |
+324 tests pass under Lune, and `rojo build` produces a clean model. **Trellis has not
+yet run inside Roblox.** Every test stubs `Instance`, `RunService` and the remotes,
+because Lune cannot run Roblox networking or physics. Run
+[`scripts/Scaffold.lua`](scripts/Scaffold.lua) in Studio and press Play before trusting
+it with a real game.
+
+```sh
+./run-tests.sh
+```
+
+---
+
+## Documentation
+
+| | |
+| --- | --- |
+| [Architecture](docs/architecture.md) | How the pieces fit, and what boots in what order |
+| [The Junction](docs/junction.md) | Entry fields, transports, materialization, fences |
+| [Src](docs/src.md) | The full injected surface |
+| [Registers](docs/registers.md) | Categories, deltas, policies, persistence |
+| [Capabilities](docs/capabilities.md) | `Req`, hooks, and the scheduler |
+| [Testing](docs/testing.md) | `__Tenv_` and the Lune suite |
+| [Coming from Junky](docs/from-junky.md) | What changed from SSJA, and why |
 
 ---
 
 <div align="center">
 
-**Trellis · an SSA subset · Plinko Labs**
+**Trellis** · [Valence](https://github.com/VALENCERBLX) · MIT
 
 </div>

@@ -1,28 +1,10 @@
--- Lune harness for Schema.luau — payload shapes declared on a Junction entry.
+-- Payload shapes declared on a Junction entry.
 
-local fs = require("@lune/fs")
-local luau = require("@lune/luau")
-local process = require("@lune/process")
+local H = require("./harness")
+local T = H.suite("Schema")
+local Schema = H.src("Schema")
 
-local Schema = luau.load(fs.readFile("../src/Schema.luau"), {
-	environment = {
-		string = string,
-		table = table,
-		type = type,
-		typeof = nil, -- outside Roblox; Schema falls back to type()
-	},
-})()
-
-local passed, failed = 0, 0
-local function check(label, ok, detail)
-	if ok then
-		passed += 1
-		print(string.format("  ok   %s", label))
-	else
-		failed += 1
-		print(string.format("  FAIL %s%s", label, detail and ("  -> " .. tostring(detail)) or ""))
-	end
-end
+local check = T.check
 
 local function accepts(label, schema, value)
 	local ok, err = Schema.Check(schema, value, "Ev")
@@ -38,7 +20,6 @@ local function rejects(label, schema, value, fragment)
 	check(label, string.find(tostring(err), fragment, 1, true) ~= nil, err)
 end
 
-print("\nSchema\n")
 
 -- bare types ---------------------------------------------------------------------
 accepts("a bare type string", "number", 5)
@@ -101,7 +82,4 @@ do
 	check("nested schemas are validated too", #nested == 1, #nested)
 end
 
-print(string.format("\n%d passed, %d failed\n", passed, failed))
-if failed > 0 then
-	process.exit(1)
-end
+T.done()

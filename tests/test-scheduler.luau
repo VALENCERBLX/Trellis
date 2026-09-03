@@ -1,39 +1,10 @@
-local process = require("@lune/process")
--- Lune harness for Scheduler.luau — proves throttling, accumulated dt, phase
--- staggering, and the client-only Render guard.
+-- The heartbeat scheduler: throttling, accumulated dt, phase staggering, timers.
 
-local fs = require("@lune/fs")
-local luau = require("@lune/luau")
+local H = require("./harness")
+local T = H.suite("Scheduler")
+local Scheduler = H.src("Scheduler")
 
-local warnings = {}
-
-local chunk = luau.load(fs.readFile("../src/Scheduler.luau"), {
-	environment = {
-		setmetatable = setmetatable,
-		string = string,
-		table = table,
-		type = type,
-		pcall = pcall,
-		error = error,
-		tostring = tostring,
-		warn = function(msg)
-			table.insert(warnings, msg)
-		end,
-	},
-})
-
-local Scheduler = chunk()
-
-local passed, failed = 0, 0
-local function check(label, ok, detail)
-	if ok then
-		passed += 1
-		print(string.format("  ok   %s", label))
-	else
-		failed += 1
-		print(string.format("  FAIL %s%s", label, detail and ("  -> " .. tostring(detail)) or ""))
-	end
-end
+local check = T.check
 
 local function fakeModule()
 	local m = { Calls = 0, Total = 0, Frames = {} }
@@ -43,8 +14,6 @@ local function fakeModule()
 	end
 	return m
 end
-
-print("\nScheduler\n")
 
 local FRAME = 1 / 60
 local SECONDS = 2
@@ -178,10 +147,7 @@ do
 	sched:Step("Heart", FRAME)
 
 	check("an erroring :Heartbeat is isolated", good.Calls == 2, good.Calls)
-	check("the error is reported once per frame", #warnings == 2, #warnings)
+	check("the error is reported once per frame", #H.warnings.peek() == 2, #H.warnings.peek())
 end
 
-print(string.format("\n%d passed, %d failed\n", passed, failed))
-if failed > 0 then
-	process.exit(1)
-end
+T.done()

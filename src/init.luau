@@ -1,7 +1,7 @@
 --!nonstrict
 -- Trellis
 -- init.luau
--- Plinko Labs
+-- Valence
 --
 -- A subset of Single Script Architecture: dependency injection whose surface is
 -- DERIVED from the hierarchy you hand it, one declared Junction for every event,

@@ -1,11 +1,11 @@
 [package]
-name = "ker/trellis"
+name = "valence/trellis"
 version = "0.1.0"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 description = "Trellis -- an SSA subset for Roblox. Dependency injection derived from your hierarchy, one declared Junction for every event, opt-in capabilities, and a replicating register tree. One Configure per side."
 license = "MIT"
-authors = ["mkl48"]
+authors = ["Valence"]
 include = ["default.project.json", "wally.toml", "src", "README.md", "LICENSE"]
 
 [dependencies]

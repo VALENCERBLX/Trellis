@@ -1,98 +1,16 @@
--- Lune harness for Tenv.luau — boots a whole fake game through the PUBLIC surface
--- and exercises every pillar together: registry, junction, capabilities, registers,
--- persistence, log, restart.
+-- A whole fake game booted through the PUBLIC surface, exercising every pillar
+-- together: registry, junction, capabilities, registers, persistence, log, restart.
 
-local fs = require("@lune/fs")
-local luau = require("@lune/luau")
-local process = require("@lune/process")
+local H = require("./harness")
+local Case = H.suite("Tenv")
 
-local warnings = {}
-local DEPS = {}
+local Bootstrap = H.src("Bootstrap")
+local Tenv = H.src("Tenv")
 
-local SCRIPT = setmetatable({}, {
-	__index = function(t, k)
-		if k == "Parent" then
-			return t
-		end
-		return k
-	end,
-})
-
-local function load(name)
-	local env = {
-		setmetatable = setmetatable,
-		getmetatable = getmetatable,
-		rawget = rawget,
-		string = string,
-		table = table,
-		math = math,
-		type = type,
-		pcall = pcall,
-		error = error,
-		tostring = tostring,
-		tonumber = tonumber,
-		print = print,
-		select = select,
-		os = { clock = os.clock, time = os.time },
-		debug = { profilebegin = function() end, profileend = function() end },
-		task = {
-			spawn = function(fn, ...)
-				fn(...)
-			end,
-			delay = function() end,
-			wait = function() end,
-		},
-		warn = function(m)
-			table.insert(warnings, m)
-		end,
-		require = function(k)
-			return DEPS[k]
-		end,
-		script = SCRIPT,
-		game = { GetService = function()
-			error("no live services in the harness")
-		end },
-	}
-	DEPS[name] = luau.load(fs.readFile("../src/" .. name .. ".luau"), { environment = env })()
-	return DEPS[name]
-end
-
--- dependency order
-load("Types")
-load("Schema")
-load("Reaction")
-load("Trove")
-load("Log")
-load("Registry")
-load("Junction")
-load("Scheduler")
-load("Reg")
-load("Src")
-load("Inspect")
-local Bootstrap = load("Bootstrap")
-local Tenv = load("Tenv")
+local check, expectError = Case.check, Case.throws
 
 local function makeEnv(spec)
 	return Tenv.new(Bootstrap, spec)
-end
-
-local passed, failed = 0, 0
-local function check(label, ok, detail)
-	if ok then
-		passed += 1
-		print(string.format("  ok   %s", label))
-	else
-		failed += 1
-		print(string.format("  FAIL %s%s", label, detail and ("  -> " .. tostring(detail)) or ""))
-	end
-end
-local function expectError(label, fn, fragment)
-	local ok, err = pcall(fn)
-	if ok then
-		check(label, false, "expected an error, got none")
-		return
-	end
-	check(label, string.find(tostring(err), fragment, 1, true) ~= nil, err)
 end
 
 -- ==================================================================== the game ===
@@ -207,8 +125,6 @@ local function makeStore()
 	}, data, released
 end
 
-print("\nTenv\n")
-
 -- boot ------------------------------------------------------------------------
 local store, storeData, released = makeStore()
 local T = makeEnv({
@@ -248,17 +164,17 @@ check("a payload refused by the Fence never lands", #trace.Swings == 1, #trace.S
 
 -- Rate runs FIRST, so the malformed and fenced sends above already spent budget:
 -- three sends have been counted, and the next is over the limit.
-warnings = {}
+H.warnings.clear()
 T:Send("Network.Combat.Swing", { Combo = 1 }, ada)
 check("the rate budget counts refused traffic too", #trace.Swings == 1, #trace.Swings)
 check("...naming the fence and the budget", (function()
-	for _, w in warnings do
+	for _, w in H.warnings.peek() do
 		if string.find(w, 'rate: fence "Combat" allows 3 per 1s', 1, true) then
 			return true
 		end
 	end
 	return false
-end)(), warnings[1])
+end)(), H.warnings.peek()[1])
 
 T:Wait(1.2, 0.01) -- the window rolls over
 T:Send("Network.Combat.Swing", { Combo = 1 }, ada)
@@ -353,7 +269,4 @@ do
 	C:Stop()
 end
 
-print(string.format("\n%d passed, %d failed\n", passed, failed))
-if failed > 0 then
-	process.exit(1)
-end
+Case.done()

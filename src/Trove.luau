@@ -1,7 +1,7 @@
 --!nonstrict
 -- Trellis
 -- Trove.luau
--- Plinko Labs
+-- Valence
 --
 -- A cleanup container, granted by Req "Trove" and destroyed on :Stop. Put anything
 -- with a teardown in it and you often need no :Stop at all -- the Trove IS the

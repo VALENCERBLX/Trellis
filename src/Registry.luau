@@ -1,7 +1,7 @@
 --!strict
 -- Trellis
 -- Registry.luau
--- Plinko Labs
+-- Valence
 --
 -- Dependency injection whose surface is DERIVED from the hierarchy you hand it.
 -- Every direct child container of every root becomes a "bin", and every bin

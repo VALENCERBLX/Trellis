@@ -1,119 +1,25 @@
--- Lune harness for Registry.luau — stubs Instance + require, then exercises the
--- derived getters, collision detection, suffix aliasing and lazy loading.
+-- Dependency injection derived from the hierarchy: bin derivation, Main, no descent,
+-- collisions, suffix aliasing, lazy loading, reconciliation.
 
-local fs = require("@lune/fs")
-local process = require("@lune/process")
-local luau = require("@lune/luau")
+local H = require("./harness")
+local T = H.suite("Registry")
+local Registry = H.src("Registry")
 
--- ============================================================ Instance stubs ===
+local check, expectError = T.check, T.throws
+local folder, module = H.folder, H.module
 
-local MODULE_VALUES = {}
-
-local Instance_mt = {}
-Instance_mt.__index = Instance_mt
-
-function Instance_mt:GetChildren()
-	return self._children
-end
-
-function Instance_mt:IsA(className)
-	return self.ClassName == className
-end
-
-function Instance_mt:GetFullName()
-	local parts, node = {}, self
-	while node do
-		table.insert(parts, 1, node.Name)
-		node = node._parent
-	end
-	return table.concat(parts, ".")
-end
-
-local function make(className, name, children)
-	local inst = setmetatable({
-		ClassName = className,
-		Name = name,
-		_children = {},
-		_parent = nil,
-	}, Instance_mt)
-	for _, child in children or {} do
-		child._parent = inst
-		table.insert(inst._children, child)
-	end
-	return inst
-end
-
-local function folder(name, children)
-	return make("Folder", name, children)
-end
-
--- a ModuleScript stub whose "source" is just the value it returns
-local function module(name, value)
-	local m = make("ModuleScript", name, {})
-	MODULE_VALUES[m] = value
-	return m
-end
-
--- ================================================================ load target ===
-
+-- Every construction goes through here so laziness can be measured: the registry
+-- must not resolve anything until something asks.
 local requireCount = 0
-
-local function stubRequire(target)
-	if target == "TYPES" then
-		return {}
-	end
-	if MODULE_VALUES[target] ~= nil then
+local function newRegistry(roots, config)
+	config = config or {}
+	config.Loader = function(source)
 		requireCount += 1
-		return MODULE_VALUES[target]
+		return H.loader(source)
 	end
-	error("stub require: unknown target " .. tostring(target))
+	return Registry.new(roots, config)
 end
 
-local source = fs.readFile("../src/Registry.luau")
--- the only real require in the module is the sibling Types module
-source = source:gsub("require%(script%.Parent%.Types%)", 'require("TYPES")')
-
-local chunk = luau.load(source, {
-	environment = {
-		require = stubRequire,
-		string = string,
-		table = table,
-		type = type,
-		setmetatable = setmetatable,
-		pcall = pcall,
-		error = error,
-		tostring = tostring,
-		print = print,
-		script = nil,
-	},
-})
-
-local Registry = chunk()
-
--- ===================================================================== tests ===
-
-local passed, failed = 0, 0
-
-local function check(label, ok, detail)
-	if ok then
-		passed += 1
-		print(string.format("  ok   %s", label))
-	else
-		failed += 1
-		print(string.format("  FAIL %s%s", label, detail and ("  -> " .. tostring(detail)) or ""))
-	end
-end
-
-local function expectError(label, fn, fragment)
-	local ok, err = pcall(fn)
-	if ok then
-		check(label, false, "expected an error, got none")
-		return
-	end
-	check(label, string.find(tostring(err), fragment, 1, true) ~= nil, err)
-end
-
-print("\nRegistry\n")
 
 -- a hierarchy shaped like the real thing
 local shared = folder("Shared", {
@@ -146,7 +52,7 @@ local server = folder("ServerStorage", {
 })
 
 local before = requireCount
-local reg = Registry.new({ shared, server }, {
+local reg = newRegistry({ shared, server }, {
 	Inject = { Package = { Profiles = { id = "Profiles" } } },
 })
 
@@ -197,7 +103,7 @@ check("HasX is a soft miss", reg:HasUtility("Maidd") == false)
 -- chance to reconcile it (a double-sided Service) before it becomes fatal.
 do
 	local other = folder("Client", { folder("Packages", { module("Lume", { id = "OldLume" }) }) })
-	local dup = Registry.new({ shared, other })
+	local dup = newRegistry({ shared, other })
 
 	check("a duplicate is recorded, not thrown at mount", #dup:Claims("Package", "Lume") == 2)
 	check("...and listed", table.concat(dup:ClaimedNames("Package"), ",") == "Lume")
@@ -216,7 +122,7 @@ do
 end
 
 -- resolver bin ---------------------------------------------------------------
-local reg2 = Registry.new({ shared }, {
+local reg2 = newRegistry({ shared }, {
 	Inject = {
 		Region = function(name)
 			return { id = "region:" .. name }
@@ -251,7 +157,4 @@ check("Main containers are iterable", table.concat(iterated, ",") == "Maid", tab
 local loaded = reg:Preload("Service")
 check("Preload returns every entry once", loaded.CombatService.id == "CombatService")
 
-print(string.format("\n%d passed, %d failed\n", passed, failed))
-if failed > 0 then
-	process.exit(1)
-end
+T.done()

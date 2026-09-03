@@ -1,7 +1,7 @@
 --!nonstrict
 -- Trellis
 -- Inspect.luau
--- Plinko Labs
+-- Valence
 --
 -- A framework that makes you declare the topology owes you a picture of it.
 --

@@ -1,7 +1,7 @@
 --!nonstrict
 -- Trellis
 -- scripts/types.luau
--- Plinko Labs
+-- Valence
 --
 -- The getters are DERIVED from your hierarchy, so Luau cannot know them. This walks
 -- the same tree Registry does and emits a type file that does -- so :GetService(

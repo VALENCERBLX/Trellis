@@ -1,7 +1,7 @@
 --!nonstrict
 -- Trellis
 -- Schema.luau
--- Plinko Labs
+-- Valence
 --
 -- Payload shapes, declared on a Junction entry and checked AT THE EDGE -- before any
 -- fence, before any handler. The map already names every event; this lets it name

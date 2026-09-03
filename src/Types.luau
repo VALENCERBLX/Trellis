@@ -1,7 +1,7 @@
 --!strict
 -- Trellis
 -- Types.luau
--- Plinko Labs
+-- Valence
 --
 -- The shared type surface. Nothing here executes; it exists so Controllers,
 -- Managers and Services can annotate against one Src type, and so the runtime

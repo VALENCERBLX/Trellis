@@ -1,7 +1,7 @@
 --!strict
 -- Trellis
 -- Junction.luau
--- Plinko Labs
+-- Valence
 --
 -- The routing map: parsed, validated, and materialized into real instances.
 --
