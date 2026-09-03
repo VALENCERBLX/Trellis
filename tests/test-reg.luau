@@ -1,4 +1,4 @@
--- Lune harness for Reg.luau — the register tree: categories, dot paths, bubbling,
+-- The register tree: categories, dot paths, bubbling,
 -- path policies, client-request authority, prediction rollback, replication scope.
 
 local fs = require("@lune/fs")

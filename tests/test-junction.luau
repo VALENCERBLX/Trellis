@@ -1,4 +1,4 @@
--- Lune harness for Junction.luau — class derivation, Defaults inheritance, "any",
+-- Class derivation, Defaults inheritance, "any",
 -- Side scoping, Fence resolution, boot validation and materialization.
 
 local fs = require("@lune/fs")

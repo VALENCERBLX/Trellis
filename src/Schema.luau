@@ -3,8 +3,8 @@
 -- Schema.luau
 -- Valence
 --
--- Payload shapes, declared on a Junction entry and checked AT THE EDGE -- before any
--- fence, before any handler. The map already names every event; this lets it name
+-- Payload shapes, declared on a Junction entry and checked AT THE EDGE, before any
+-- fence and before any handler. The map already names every event; this lets it name
 -- what the event carries, which deletes the `if type(payload) ~= "table"` prologue
 -- from every server handler and rejects malformed traffic in one place.
 --

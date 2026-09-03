@@ -4,9 +4,8 @@
 -- Valence
 --
 -- The getters are DERIVED from your hierarchy, so Luau cannot know them. This walks
--- the same tree Registry does and emits a type file that does -- so :GetService(
--- offers your real Service names, and a typo is a type error rather than a runtime
--- one.
+-- the same tree Registry does and emits a type file that does, so :GetService( offers
+-- your real Service names and a typo is a type error rather than a runtime one.
 --
 --   lune run scripts/types -- src/ReplicatedStorage/Shared/Modules src/ServerStorage
 --   lune run scripts/types -- src/... --out src/Shared/Modules/Config/Generated.luau

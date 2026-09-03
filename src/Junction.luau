@@ -58,7 +58,7 @@ local function classOf(namespace: string, kind: string): string
 end
 
 -- Entry fields fall back to the domain's Defaults, then to the framework defaults.
--- "any" explicitly clears an inherited Destination -- that is the requests-in /
+-- "any" explicitly clears an inherited Destination. That is the requests-in /
 -- reports-out split most domains have, expressed in the structure instead of a comment.
 local function inherit(raw: { [string]: any }, defaults: { [string]: any }, field: string): any
 	local value = raw[field]
@@ -233,8 +233,8 @@ end
 -- ================================================================= validation ===
 
 -- A Controller only ever exists on the client and a Manager only on the server, so a
--- destination naming one of those can be checked from the side that owns it -- which
--- is how a typo in a NETWORK destination gets caught at boot rather than never.
+-- destination naming one of those can be checked from the side that owns it, which is
+-- how a typo in a NETWORK destination gets caught at boot rather than never.
 local function impliedSide(destination: string): string?
 	if string.sub(destination, -10) == "Controller" then
 		return "Client"
@@ -309,9 +309,9 @@ end
 --     <Container>/<Domain>/<Event>
 -- The server creates them; the client waits for the same paths. Local entries get a
 -- plain-Lua signal unless the entry opted into a real Bindable.
--- The framework's own channels. They are not in your map -- you should not have to
--- declare the plumbing that carries register deltas -- but they materialize the same
--- way so there is exactly one path that creates remotes.
+-- The framework's own channels. They are not in your map, since you should not have to
+-- declare the plumbing that carries register deltas, but they materialize the same way
+-- so there is exactly one path that creates remotes.
 local BUILTIN = {
 	{ Path = "Network.__Reg.Delta", Domain = "__Reg", Event = "Delta", Class = "RemoteEvent" },
 	{ Path = "Network.__Reg.Request", Domain = "__Reg", Event = "Request", Class = "RemoteFunction" },
@@ -449,8 +449,8 @@ function Junction:ForgetRates(from: any)
 end
 
 -- Bootstrap registers each module that asked to fence. MANY modules may fence one
--- Fence and ALL must pass -- that is how layered validation gets written, a rate
--- limiter and a shape check watching the same events without knowing each other.
+-- Fence and ALL must pass. That is how layered validation gets written: a rate limiter
+-- and a shape check watching the same events without knowing about each other.
 function Junction:AddFencer(name: string, module: any)
 	local list = self._fencers[name]
 	if not list then

@@ -22,8 +22,8 @@ local Bootstrap = {}
 
 -- Role bins, and which side each may boot on. A Service is side-split: it boots on
 -- whichever side discovered it, so it is scoped by where you put it.
--- NOTE: "Any" rather than nil -- a nil value in a Luau table literal removes the
--- key entirely, so `Service = nil` would silently drop Services from the boot.
+-- NOTE: "Any" rather than nil. A nil value in a Luau table literal removes the key
+-- entirely, so `Service = nil` would silently drop Services from the boot.
 local ROLES = {
 	Controller = "Client",
 	Manager = "Server",
@@ -31,7 +31,7 @@ local ROLES = {
 }
 
 -- Src mirrors onto the module, so these keys belong to the framework. A module
--- defining one would silently shadow it -- so it's a boot error instead.
+-- defining one would silently shadow it, so it is a boot error instead.
 local RESERVED = {
 	"Name", "Role", "Side", "Player", "Main",
 	"Local", "Network", "Reg", "Await", "OnCleanup", "Inspect",
@@ -146,9 +146,9 @@ end
 -- __Serve is NOT a transfer. Server containers never replicate and functions do not
 -- cross remotes, so the client requires the same shared module and runs __Serve
 -- ITSELF, in its own VM. Two things follow: the module must live somewhere
--- replicated (its server half is therefore readable by exploiters -- keep secrets in
--- a Manager), and __Serve must be self-contained, because every upvalue it closes
--- over is the client's copy.
+-- replicated, so its server half is readable by exploiters; keep secrets in a Manager.
+-- And __Serve must be self-contained, because every upvalue it closes over is the
+-- client's copy.
 --
 -- Optionally the client tree holds a host of the same name that receives the served
 -- table instead of the framework booting it directly:
@@ -387,7 +387,7 @@ local function regTransport(junction, side: string)
 end
 
 -- Req "Profile": wrap every hook in debug.profilebegin(Module.Hook). Turn it on for
--- a suspect module, read the microprofiler, turn it off -- the module never changes.
+-- a suspect module, read the microprofiler, turn it off. The module never changes.
 local function installProfile(entry)
 	for _, hook in PROFILED_HOOKS do
 		local original = rawget(entry.Module, hook)

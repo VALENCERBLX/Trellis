@@ -21,8 +21,8 @@ local T = Trellis.__Tenv_({
 `Modules` accepts the same folder names the registry uses: `Controllers`, `Managers`,
 `Services`, `Packages`, `Utility`, `Config`. Pass `Bins` for anything else.
 
-This is the same seam the framework's own suite runs on — `Bootstrap` already takes its
-IO, its services and its clock as parameters — so the test environment is honest about
+This is the same seam the framework's own suite runs on. `Bootstrap` already takes its
+IO, its services and its clock as parameters, so the test environment is honest about
 what it fakes rather than reimplementing the boot.
 
 ## The clock
@@ -63,7 +63,7 @@ T:Clear()
 T:Answer("Network.Session.Get", function(payload) return … end)
 ```
 
-Each packet records its direction — `ToServer`, `ToClient`, `ToAll`, `Invoke` — and its
+Each packet records its direction (`ToServer`, `ToClient`, `ToAll`, `Invoke`) and its
 target player where there is one. `T:Send` to a path that does not exist errors and
 lists the real ones.
 
@@ -125,7 +125,7 @@ T.done()
 
 `H.folder` and `H.module` build fake Instances; `H.loader` resolves them. `H.clock`
 controls what every module sees as `os.clock`. `H.warnings.take()` drains captured
-warnings — draining is the default, because a test that reads warnings without clearing
+warnings. Draining is the default, because a test that reads warnings without clearing
 them will pass on the previous test's output.
 
 `tests/test-regressions.luau` pins bugs that were shipped once and fixed, each with the

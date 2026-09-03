@@ -3,7 +3,7 @@
 -- Log.luau
 -- Valence
 --
--- Every event crosses the Junction, so a ring buffer per path is nearly free -- and
+-- Every event crosses the Junction, so a ring buffer per path is nearly free, and
 -- dumping it when a module errors turns "it broke somehow" into a transcript.
 --
 --   Configure({ Log = true })   -- keep the last 64 per path

@@ -4,7 +4,7 @@
 -- Valence
 --
 -- The engine behind Req "Heart". Owns ONE connection per driver for the whole app
--- and dispatches to every module that asked for a heartbeat -- forty modules cost
+-- and dispatches to every module that asked for a heartbeat. Forty modules cost
 -- one Connect, not forty.
 --
 -- Two things a module cannot do for itself, and so the scheduler does:

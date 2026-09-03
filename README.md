@@ -55,7 +55,7 @@ wally install
 ```
 
 Trellis has no dependencies. To scaffold a project around it, paste
-[`scripts/Scaffold.lua`](scripts/Scaffold.lua) into the Studio command bar — it lays
+[`scripts/Scaffold.lua`](scripts/Scaffold.lua) into the Studio command bar. It lays
 down the recommended layout, fills it with a small working game, and prints a
 pass/fail line per subsystem when you press Play.
 
@@ -76,7 +76,7 @@ Shared/Modules/
 
 Add a `Config/` folder and `:GetConfig` exists. There is no registration step and no
 framework change. It follows that `Junction`, `BootOrder` and `Registers` need not be
-passed to `Configure` at all — they are modules in the `Config` bin, found by name.
+passed to `Configure` at all. They are modules in the `Config` bin, found by name.
 
 A Controller has no `:GetManager`, because the client roots contain no `Managers/`
 folder. That is not a special case in the code; it falls out of which tree that side
@@ -150,8 +150,8 @@ Every RemoteFunction gets its own `OnServerInvoke` instead of a hand-rolled disp
 table. And the Explorer shows the live topology while the game runs.
 
 Local entries are plain-Lua signals by default. `BindableEvent:Fire` serializes its
-arguments — metatables stripped, table identity lost, mixed keys mangled — which
-silently breaks any payload carrying a class instance or a promise. Set
+arguments, so metatables are stripped, table identity is lost and mixed keys are
+mangled. That silently breaks any payload carrying a class instance or a promise. Set
 `Instanced = true` on an entry when you want the Explorer node anyway.
 
 A domain-level `Defaults` table is inherited by every entry in it. Per-entry fields
@@ -195,18 +195,18 @@ Event names are checked against the Junction when a handler binds, so a typo err
 immediately and lists the domain's real events. Calling `:Post` on a `Resolve` entry
 is likewise an error rather than a confusing nil.
 
-**`from` is always the handler's second parameter and never a field.** `Src` is a
+`from` is always the handler's second parameter and never a field. `Src` is a
 per-module singleton, so a shared `From` slot would be overwritten by the next event
-whenever a handler yields — and `from` is the value authority is gated on. It is `nil`
+whenever a handler yields, and `from` is the value authority is gated on. It is `nil`
 for anything that originated on this side.
 
 Inbound payloads clear three gates before a handler sees them, cheapest first:
 
-1. **Rate** — the per-player budget the Fence declared. This runs first on purpose. A
+1. **Rate.** The per-player budget the Fence declared. This runs first on purpose: a
    flood of malformed payloads is exactly what a rate limit exists to stop, so
    validating first would exempt garbage from the budget.
-2. **Schema** — declared on the entry. The rejection names the offending field.
-3. **Fences** — your own predicates. Several modules may fence one event and all must
+2. **Schema.** Declared on the entry. The rejection names the offending field.
+3. **Fences.** Your own predicates. Several modules may fence one event and all must
    pass, so a shape check and a rate limiter coexist without knowing about each other.
 
 Read more: [docs/src.md](docs/src.md)
@@ -245,14 +245,14 @@ that failed and listing its siblings. Without that rule, one typo grows a phanto
 branch and you are back to a bag of strings. A missing *value* still reads as `nil`;
 a value may legitimately be unset, while a missing category is a structural mistake.
 
-The five mutation verbs are the replication protocol — each one is a path-shaped delta
+The five mutation verbs are the replication protocol. Each one is a path-shaped delta
 `{ Op, Reg, Owner, Path, Value }`. Reads never leave the local mirror, which is why
 `Access` and `Bubble` sit outside that set.
 
 A client mutation is a request rather than a write. The server checks the path against
-`Policies`, applies it, and echoes the authoritative delta. **A path matching no policy
-is server-only**, so forgetting to write a policy fails closed. Every verb returns a
-promise on both sides, so a side-split Service can move sides without a rewrite.
+`Policies`, applies it, and echoes the authoritative delta. A path matching no policy is
+server-only, so forgetting to write a policy fails closed. Every verb returns a promise
+on both sides, so a side-split Service can move sides without a rewrite.
 
 Read more: [docs/registers.md](docs/registers.md)
 
@@ -261,19 +261,19 @@ Read more: [docs/registers.md](docs/registers.md)
 ## Capabilities
 
 A module declares what it needs. The deployment decides how much of it. `Req` covers
-only things that cost something at runtime or need per-deployment configuration —
-a hook that is simply called once if you defined it costs nothing when absent and
-should not need declaring.
+only things that cost something at runtime or need per-deployment configuration. A hook
+that is simply called once if you defined it costs nothing when absent, and should not
+need declaring.
 
 | `Req` | Installs | Configured by |
 | --- | --- | --- |
 | `Heart` | `:Heartbeat(dt)` | `Hz` |
-| `Player` | `:PlayerAdded` / `:PlayerRemoving` (server) | — |
+| `Player` | `:PlayerAdded` / `:PlayerRemoving` (server) | - |
 | `Tag` | `:TagAdded` / `:TagRemoved` | `Tags` |
 | `Fence` | `:Fence(event, payload, from)` | `Fences` |
-| `Timer` | `Src:Delay` `:Every` `:Cancel` | — |
-| `Trove` | `Src.Trove` | — |
-| `Profile` | every hook wrapped in `debug.profilebegin` | — |
+| `Timer` | `Src:Delay` `:Every` `:Cancel` | - |
+| `Trove` | `Src.Trove` | - |
+| `Profile` | every hook wrapped in `debug.profilebegin` | - |
 
 `:Start(Src)`, `:Stop()` and `:Ready()` need no `Req`. `:Ready` runs once every module
 on that side has started, which is the timing question modules actually have.
@@ -322,7 +322,7 @@ return {
 
 `Order` is when a module starts; `Config` is how it is set up when it does. The array
 index is the priority, so inserting a module means inserting a line rather than
-renumbering anything. Only list what genuinely needs ordering — everything else boots
+renumbering anything. Only list what genuinely needs ordering. Everything else boots
 after the last tier, with one warning naming it.
 
 One scheduler owns one connection per driver for the whole app and staggers phases
@@ -348,9 +348,9 @@ end
 
 `__Serve` is a factory the client runs, not a table the server sends. Server containers
 never replicate and functions do not cross remotes, so the client requires the same
-shared module and calls `__Serve` in its own VM. Two consequences worth stating plainly:
-the module must live somewhere replicated, so its server half is readable by exploiters
-— keep drop tables and anti-cheat thresholds in a Manager — and `__Serve` must be
+shared module and calls `__Serve` in its own VM. Two consequences worth stating plainly.
+The module must live somewhere replicated, so its server half is readable by exploiters;
+keep drop tables and anti-cheat thresholds in a Manager. And `__Serve` must be
 self-contained, because every upvalue it closes over is the client's copy.
 
 A client module of the same name may receive it instead:

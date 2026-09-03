@@ -3,7 +3,7 @@
 -- Reg.luau
 -- Valence
 --
--- The global cache. A TREE, not a flat store -- Cat is CATEGORY.
+-- The global cache. A TREE, not a flat store: Cat is CATEGORY.
 --
 --   local Reg = Src:Reg("Round")
 --   Reg:New("Scores", {})              Reg:Access("Scores")
@@ -17,8 +17,8 @@
 --
 -- ONLY Cat creates a category. Access and Edit traverse existing ones and error on
 -- a path that does not resolve, naming the segment that failed and listing its real
--- siblings -- otherwise Reg:Edit("Comabt.Health", 5) grows a phantom branch and you
--- are back to a bag of strings.
+-- siblings. Otherwise Reg:Edit("Comabt.Health", 5) grows a phantom branch and you are
+-- back to a bag of strings.
 --
 -- Authority: a client mutation is a REQUEST. The server validates it against the
 -- register's Policies, applies it, and echoes the authoritative delta. Every verb
@@ -287,7 +287,7 @@ function Reg:Drop(owner)
 end
 
 -- A shallow census for Inspect: what exists, how big, and whether it is waiting to
--- be written. Deliberately not the contents -- the panel renders those on demand.
+-- be written. Deliberately not the contents; the panel renders those on demand.
 function Reg:Census(): { any }
 	local rows = {}
 	local function countCat(cat)
@@ -475,7 +475,7 @@ function Register:_path(path: string): string
 end
 
 -- Scope into a category, or create one when the parent was declared Dynamic. Cat is
--- the ONLY thing that creates a category -- that is what stops a typo'd Access from
+-- the ONLY thing that creates a category. That is what stops a typo'd Access from
 -- silently growing a branch.
 function Register:Cat(name: string)
 	checkKey(name)

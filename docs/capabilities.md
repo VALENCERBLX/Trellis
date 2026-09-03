@@ -38,15 +38,15 @@ easier to reason about than two.
 | `Req` | Installs | Config | Side |
 | --- | --- | --- | --- |
 | `Heart` | `:Heartbeat(dt)` | `Hz` | both |
-| `Player` | `:PlayerAdded(p)` / `:PlayerRemoving(p)` | — | server |
+| `Player` | `:PlayerAdded(p)` / `:PlayerRemoving(p)` | - | server |
 | `Tag` | `:TagAdded(inst, tag)` / `:TagRemoved(inst, tag)` | `Tags` | both |
 | `Fence` | `:Fence(event, payload, from)` | `Fences` | both |
-| `Timer` | `Src:Delay` `:Every` `:Cancel` | — | both |
-| `Trove` | `Src.Trove` | — | both |
-| `Profile` | every hook wrapped in `debug.profilebegin` | — | both |
+| `Timer` | `Src:Delay` `:Every` `:Cancel` | - | both |
+| `Trove` | `Src.Trove` | - | both |
+| `Profile` | every hook wrapped in `debug.profilebegin` | - | both |
 
 Three things are checked at boot: a `Req` whose hook the module never defined, a hook
-defined without its `Req` (a warning — it would never be called), and a `Config` key
+defined without its `Req` (a warning, since it would never be called), and a `Config` key
 tuning a capability the module never asked for. That last one matters most, because
 `Hz = 20` on a module without `Req = { "Heart" }` would otherwise do nothing at all,
 quietly.
@@ -85,8 +85,8 @@ frame carries three.
 
 `dt` on a throttled heartbeat is the accumulated time since that module's last call,
 not the frame delta, so integration stays correct at any rate. Internally that needs
-two counters — one that carries its remainder to keep the average rate exact, and one
-that measures wall time and zeroes on every call so each `dt` is counted once. A lag
+two counters. One carries its remainder to keep the average rate exact; the other
+measures wall time and zeroes on every call, so each `dt` is counted once. A lag
 spike that banks several periods fires once and drops the backlog rather than
 rapid-firing to catch up.
 
@@ -101,7 +101,8 @@ function SessionManager:PlayerRemoving(player) end
 
 Either hook alone is enough. At install, players already in the server are replayed
 through `:PlayerAdded`. Without that, a module which boots after someone joined misses
-them entirely — a bug that appears on a populated live server and never once in Studio.
+them entirely, which is a bug that appears on a populated live server and never once in
+Studio.
 
 ## Tag
 
@@ -166,5 +167,5 @@ cleaned with its parent. Adding during teardown cleans immediately rather than l
 ## Profile
 
 Wraps every hook on the module in `debug.profilebegin("Module.Hook")`. Turn it on for a
-suspect module, read the microprofiler, turn it off — the module itself never changes.
+suspect module, read the microprofiler, turn it off. The module itself never changes.
 `Configure{ Profile = true }` profiles everything at once.

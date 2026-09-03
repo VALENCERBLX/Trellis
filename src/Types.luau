@@ -162,7 +162,7 @@ export type Reaction = {
 -- ========================================================================= bus ===
 
 -- A handler always receives (payload, from). `from` is the sending Player, or nil
--- when the event originated on this side -- nil therefore means trusted.
+-- when the event originated on this side. A nil therefore means trusted.
 export type Handler = (payload: any, from: any?) -> ()
 export type Responder = (payload: any, from: any?) -> any
 

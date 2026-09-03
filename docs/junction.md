@@ -56,7 +56,7 @@ class = (namespace == "Local" and "Bindable" or "Remote") .. (Static and "Event"
 | `Junction.Network` | RemoteEvent | RemoteFunction |
 
 Verbs are checked against `Kind` when a handler binds. `:Post` on a `Resolve` entry is
-an error naming the path, as is a second `:Respond` on the same entry — exactly one
+an error naming the path, as is a second `:Respond` on the same entry. Exactly one
 module answers an event.
 
 ## Materialization
@@ -76,7 +76,7 @@ channel for register deltas; you do not declare it.
 
 One instance per entry rather than one multiplexed remote, for three reasons. The
 channel name leaves the wire. A RemoteFunction has exactly one `OnServerInvoke`, so
-multiplexing forces a hand-rolled responder table — and per-entry instances make "two
+multiplexing forces a hand-rolled responder table. Per-entry instances also make "two
 modules answered the same event" a boot error instead of last-writer-wins. And the
 Explorer shows the topology while the game runs.
 
@@ -88,7 +88,7 @@ machine, a class instance or a promise breaks silently. Local entries are theref
 plain-Lua signals: same surface, no copy, faster. Set `Instanced = true` on an entry
 when you want the Explorer node or a third-party script hooking in.
 
-A Local `Resolve` as a real BindableFunction buys nothing at all — it is a synchronous
+A Local `Resolve` as a real BindableFunction buys nothing at all. It is a synchronous
 call with a serialization tax.
 
 ## Schemas
@@ -112,7 +112,7 @@ payload is a single value.
 
 | Spec key | Effect |
 | --- | --- |
-| `Type` | The type name. Required — its presence is what marks a table as a spec. |
+| `Type` | The type name. Required: its presence is what marks a table as a spec. |
 | `Min` / `Max` | Numeric bounds. |
 | `One` | An allowed set. |
 | `Of` | A nested schema. |
@@ -154,4 +154,4 @@ knowing about each other.
 
 The rate budget is a fixed window per player. Its worst case is a burst straddling the
 boundary giving twice the budget for one window, which is the right trade for an
-anti-spam guard. Internal traffic — `from == nil` — is never rate limited.
+anti-spam guard. Internal traffic, where `from` is nil, is never rate limited.

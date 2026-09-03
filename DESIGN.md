@@ -1,4 +1,4 @@
-# Trellis — design log
+# Trellis - design log
 
 > The **README** is authoritative. This is the running record of *why* each decision
 > went the way it did, kept because the reasoning is easy to lose and expensive to
@@ -11,12 +11,12 @@ STATUS: design, nothing built. Successor to Junky (SSJA) / the Fantasy Arena Net
 
 ## Pillars
 1. Single Bootstrap per side (Configure).
-2. Registry — DI whose Get* surface is DERIVED from the hierarchy you hand it.
-3. Junction — declared routing map, transport stated not inferred.
-4. Src — the bus surface (Post/Subscribe/Resolve/Respond), scoped per domain.
-5. Reg — global cache, replicating over the Junction.
+2. Registry - DI whose Get* surface is DERIVED from the hierarchy you hand it.
+3. Junction - declared routing map, transport stated not inferred.
+4. Src - the bus surface (Post/Subscribe/Resolve/Respond), scoped per domain.
+5. Reg - global cache, replicating over the Junction.
 
-## 2. Registry — derived getters
+## 2. Registry - derived getters
 Root.Packages.X  ==  Root:GetPackage("X")
 Root["Get" .. singular(binName)] = function(_, n) return resolve(bin, n) end
 
@@ -68,13 +68,13 @@ Why one instance per entry rather than one multiplexed remote:
   - typo'd event can't reach runtime
 
 ### Local entries: plain-Lua signals by default
-BindableEvent:Fire(t) SERIALIZES — deep copy, metatables stripped, mixed keys mangled.
+BindableEvent:Fire(t) SERIALIZES - deep copy, metatables stripped, mixed keys mangled.
 A Local event carrying a Moody machine / Accede thenable breaks silently.
 So Local = plain-Lua signal (same surface, faster, keeps identity); Instanced = true
 per entry when you want the Explorer node or a third-party hookup.
-Local Kind="Resolve" as a real BindableFunction buys nothing — it's a sync call + tax.
+Local Kind="Resolve" as a real BindableFunction buys nothing - it's a sync call + tax.
 
-## 4. Src — the bus
+## 4. Src - the bus
 	local Input = Src:Local("Input")
 	Input:Post("Pressed", key)
 	Input:Subscribe("Pressed", fn)     --> unsubscribe
@@ -100,14 +100,14 @@ Local Kind="Resolve" as a real BindableFunction buys nothing — it's a sync cal
 	- two Respond on one Resolve entry                               -> error
 	- Registry name collision across roots                           -> error
 Server publishes its module-name set at handshake so the client can validate Network
-destinations too — closes the hole Junky admits to in Bootstrap.lua:78.
+destinations too - closes the hole Junky admits to in Bootstrap.lua:78.
 
 ## 4b. What is injected into Controllers / Managers / Services
-Injection is a privilege of the three ROLES. Package/Utility/Config modules get nothing —
+Injection is a privilege of the three ROLES. Package/Utility/Config modules get nothing -
 they are plain modules pulled through the derived getters.
 
 Delivery: installed onto the module table via __index BEFORE :Start, AND passed as the
-:Start argument. Available in every method, not just :Start — kills the `self._ctx = ctx`
+:Start argument. Available in every method, not just :Start - kills the `self._ctx = ctx`
 boilerplate. Reserved keys; a module defining one is a boot error.
 
 ### Common to all three
@@ -121,7 +121,7 @@ boilerplate. Reserved keys; a module defining one is a boot error.
 	self:Get<Bin>(name)                   every bin present on THIS side
 
 ### Client only
-	self.Player    LocalPlayer            (nil on the server — no single player there)
+	self.Player    LocalPlayer            (nil on the server - no single player there)
 
 ### Role shape is not special-cased
 A Controller has no :GetManager because the client roots have no Managers folder.
@@ -144,9 +144,9 @@ Cross-domain still explicit: self.Src:Local("Animation"):Post("Play", ...)
 	  opposite roles). Could default a Network entry's Destination to the counterpart.
 	  Clever, maybe too magic.
 	- Should structural Reg ops (New/Swap/Rem) be Service-only, with Controllers/Managers
-	  limited to Get/Watch/Edit? Enforces "Services own state" — opinionated.
+	  limited to Get/Watch/Edit? Enforces "Services own state" - opinionated.
 
-## 5. Reg — global cache   (accessed ONLY via Src:Reg; never pre-bound to a module)
+## 5. Reg - global cache   (accessed ONLY via Src:Reg; never pre-bound to a module)
 A TREE, not a flat store. Cat = CATEGORY.
 
 	Registers = {
@@ -183,7 +183,7 @@ ONLY Cat creates a category. Access/Edit TRAVERSE existing ones and error on an
 unresolved path, naming the failed segment + listing real siblings. Otherwise
 Reg:Edit("Comabt.Health", 5) silently grows a phantom branch = bag-of-strings.
 Declared Cats are scoped into; only a Dynamic category creates on Cat(name).
-KEYS MAY NOT CONTAIN A DOT — validated in New and Cat.
+KEYS MAY NOT CONTAIN A DOT - validated in New and Cat.
 
 ### Deltas are path-shaped
 	{ Op = "Edit", Reg = "Session", Path = "Stats.Health", Value = 92 }
@@ -199,7 +199,7 @@ category, so a watcher on "Stats" fires for "Stats.Health". Handler gets
 ### Authority + uniformity
 Client mutation = REQUEST: validated server-side against Policies, echoed back as the
 authoritative delta. ALL MUTATION VERBS RETURN A THENABLE on both sides (already-resolved
-on the server) — otherwise a side-split Service can't move sides without a rewrite.
+on the server) - otherwise a side-split Service can't move sides without a rewrite.
 No optimistic local write by default:
 	Reg:Edit(path, patch, { Predict = true })   -- applies locally, rolls back if refused
 
@@ -213,8 +213,8 @@ No optimistic local write by default:
 ## 6. Lifecycle, BootOrder, Req
 Hooks: :Start() and :Stop(). No :Init phase.
 
-### BootOrder — replaces ClassPriorityMap + StandalonePriorityMap
-ONE map. The ARRAY INDEX is the boot order — no tier numbers to renumber on insert.
+### BootOrder - replaces ClassPriorityMap + StandalonePriorityMap
+ONE map. The ARRAY INDEX is the boot order - no tier numbers to renumber on insert.
 	return {
 		"MemoryService",
 		"SessionManager",
@@ -224,7 +224,7 @@ ONE map. The ARRAY INDEX is the boot order — no tier numbers to renumber on in
 	}
 Bare string or table-with-config. Modules absent boot last with a warning.
 
-### Module.Req — CAPABILITIES, not dependencies
+### Module.Req - CAPABILITIES, not dependencies
 Ordering is BootOrder's job. Req declares what gets INSTALLED on the module.
 
 RULE FOR WHAT EARNS A Req: it costs something at runtime, or needs per-deployment
@@ -239,11 +239,11 @@ Plain optional hooks, no Req:
 	Req       Grants                                    BootOrder config   Side
 	Heart     :Heartbeat(dt)                            Hz                 both
 	Fence     :Fence(event, payload, from)              Fences = {"Combat"} both
-	Player    :PlayerAdded(p) / :PlayerRemoving(p)      —                  SERVER
+	Player    :PlayerAdded(p) / :PlayerRemoving(p)      -                  SERVER
 	Tag       :TagAdded(inst) / :TagRemoved(inst)       Tags = {"Pickup"}  both
-	Timer     self:Delay(t,fn) self:Every(t,fn)         —                  both
-	Trove     self.Trove (destroyed on :Stop)           —                  both
-	Profile   hooks wrapped in debug.profilebegin(Name) —                  both
+	Timer     self:Delay(t,fn) self:Every(t,fn)         -                  both
+	Trove     self.Trove (destroyed on :Stop)           -                  both
+	Profile   hooks wrapped in debug.profilebegin(Name) -                  both
 
 SYMMETRY: Req = the module saying what it needs. BootOrder = the deployment saying
 how much of it. Tag follows Heart exactly (module declares it works on tagged
@@ -259,30 +259,30 @@ Validation:
 	- :Heartbeat defined without Req "Heart" -> warning (dead code, never called)
 
 Player BACKLOG REPLAY: a module booting after players joined misses PlayerAdded
-entirely — a bug that only shows on live servers, never in Studio. Replay
+entirely - a bug that only shows on live servers, never in Studio. Replay
 Players:GetPlayers() through the handler at install time.
 Timer LIFETIME BINDING: task.delay firing into a torn-down module is the most common
 Roblox leak; capability-granted timers cancel on :Stop, so it can't happen.
 
-### Hz — declared in BootOrder, not in the module
+### Hz - declared in BootOrder, not in the module
 The module says it needs a heartbeat; the DEPLOYMENT says how fast and what drives it.
 	{ "StateManager",     Hz = 20 }         throttled, accumulated dt
 	{ "CameraController", Hz = "Render" }   PreRender / RenderStepped, CLIENT only
 	{ "PhysicsManager",   Hz = "Step" }     PreSimulation / Stepped
 	"VfxController"                          default: every Heartbeat
-Same hook name (:Heartbeat) whatever the driver — retargeting is one word in one file.
+Same hook name (:Heartbeat) whatever the driver - retargeting is one word in one file.
 	- ONE RunService connection per driver for the whole app; the scheduler dispatches.
 	- STAGGERED PHASES: offset each accumulator so N modules at Hz=10 spread across
 	  frames instead of spiking together every 6th frame. Only the scheduler sees all N.
 	- dt on a throttled :Heartbeat is ACCUMULATED time since its last call, not the
-	  frame delta — integration stays correct at any Hz.
+	  frame delta - integration stays correct at any Hz.
 
-## Open — decide before code
+## Open - decide before code
 	1. FENCE GRANULARITY: does a Fence list EVENTS or wrap a whole DOMAIN?
 	2. CONFIGURE PAYLOAD: exact config table shape.
 	3. NAMES + home under Ker/ (proposed: Trellis = framework, Conduit = networking).
 
-## 7. Fence — Guards, declared  (the veto is a FENCE; the word "gate" is not used)
+## 7. Fence - Guards, declared  (the veto is a FENCE; the word "gate" is not used)
 Junction.Fence is the THIRD top-level category, beside Network and Local.
 	Junction.Fence = {
 		Combat  = { "Network.Combat.Swing", "Network.Combat.Block" },
@@ -292,7 +292,7 @@ Junction.Fence is the THIRD top-level category, beside Network and Local.
 	function CombatManager:Fence(event, payload, from) -> boolean, reason? end
 	-- BootOrder: { "CombatManager", Fences = { "Combat" } }
 
-USUALLY THE DOMAIN OWNER FENCES ITS OWN DOMAIN — the module that knows what a valid
+USUALLY THE DOMAIN OWNER FENCES ITS OWN DOMAIN - the module that knows what a valid
 Swing looks like is CombatManager. A separate module only earns its place for
 cross-cutting concerns (one rate limiter fencing Combat + Economy + Chat).
 
@@ -309,20 +309,20 @@ call site, so nothing could tell you what was guarded without grepping. A Fence 
 declared in the map, so the Junction shows every fenced event and who watches it.
 
 ## Built
-	- Registry.luau + test-registry.luau — 32/32 under Lune. Derived getters, Src.Main
+	- Registry.luau + test-registry.luau - 32/32 under Lune. Derived getters, Src.Main
 	  (frozen, lazy, iterable), no-descent, collision errors, suffix aliasing,
 	  lazy+cached, Preload, resolver bins.
-	- Scheduler.luau + test-scheduler.luau — 18/18. Hz throttling, TWO counters (rate
+	- Scheduler.luau + test-scheduler.luau - 18/18. Hz throttling, TWO counters (rate
 	  vs dt), golden-ratio phase staggering (12 modules @ Hz=10 -> busiest frame 3),
 	  lag-spike clamp, per-driver lists, client-only Render guard, error isolation.
-	- examples.luau — one module per Req.
+	- examples.luau - one module per Req.
 
 ## Settled
 	- Src IS the injected context (not a field on it); mirrored onto the module
-	- NO Src.Domain — every bus call names its domain explicitly
+	- NO Src.Domain - every bus call names its domain explicitly
 	- `from` is a HANDLER PARAMETER (payload, from), never a field: a per-module Src.From
 	  slot is overwritten across yields, and it is the field authority is gated on
-	- Fence replaces Guards; there is no "Gate" — the thing is a Fence
+	- Fence replaces Guards; there is no "Gate" - the thing is a Fence
 	- thenables are PascalCase (:Next/:Toss/:Await) -> Accede needs aliases (non-breaking)
 	- Cat = Category (a tree), Get -> Access, Watch -> Bubble, dot paths on Access/Edit
 	- Reg reached only via Src:Reg

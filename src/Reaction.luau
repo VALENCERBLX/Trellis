@@ -12,7 +12,7 @@
 --       :Toss(function(err) end)
 --
 -- This is a small self-contained implementation so the framework has no hard
--- dependency. Accede can replace it wholesale -- the surface is deliberately the
+-- dependency. Accede can replace it wholesale; the surface is deliberately the
 -- same set of verbs, PascalCased.
 
 local Reaction = {}

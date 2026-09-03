@@ -13,7 +13,7 @@
 --
 -- Only DIRECT children are scanned, so `Packages/Icon/Packages` stays Icon's own
 -- private business and can never collide with yours. A name mounted twice across
--- two roots is a boot error naming both paths -- never a silent FindFirstChild win.
+-- two roots is a boot error naming both paths, never a silent FindFirstChild win.
 --
 -- Modules are required lazily and cached; Bootstrap forces the lifecycle bins
 -- (Controller / Manager / Service) eagerly so syntax errors surface at boot.
@@ -119,7 +119,7 @@ function Registry:_bin(name: string, container: string?): { [string]: Entry }
 end
 
 -- Every entry registers under its own name, and additionally under its name minus
--- the bin's own suffix -- so a Service bin gives you both "CombatService" and
+-- the bin's own suffix, so a Service bin gives you both "CombatService" and
 -- "Combat". The stripped alias never overwrites a real name.
 function Registry:_add(binName: string, key: string, entry: Entry, alias: boolean?)
 	local bin = self:_bin(binName)

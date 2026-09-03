@@ -16,7 +16,7 @@
 -- `from` is always the handler's SECOND parameter, and is the sending Player or nil
 -- when the event originated on this side. It is never a field: Src is a per-module
 -- singleton, so a shared slot would be overwritten by the next event if a handler
--- yields -- and it is the value authority is gated on.
+-- yields, and it is the value authority is gated on.
 
 local Reaction = require(script.Parent.Reaction)
 local Schema = require(script.Parent.Schema)
@@ -439,9 +439,9 @@ function NetworkScope:Resolve(event: string, payload: any?)
 	end)
 end
 
--- RemoteFunction:InvokeClient blocks until that client answers -- and a hung or
--- hostile client never does. The timeout is therefore not optional: without it one
--- player can strand a server thread forever. Override per call if you must.
+-- RemoteFunction:InvokeClient blocks until that client answers, and a hung or hostile
+-- client never does. The timeout is therefore not optional: without it, one player can
+-- strand a server thread forever. Override per call if you must.
 local RESOLVE_FROM_TIMEOUT = 10
 
 function NetworkScope:ResolveFrom(player: Player, event: string, payload: any?, options: any?)
@@ -516,7 +516,7 @@ function Src:Reg(register: string, owner: Player?)
 end
 
 -- One-shot latch on "Namespace.Domain.Event". Resolves the first time that event is
--- posted on this side, and latches -- a late awaiter resolves immediately. Await
+-- posted on this side, and latches, so a late awaiter resolves immediately. Await
 -- answers "has this happened yet"; Subscribe answers "tell me every time".
 function Src:Await(path: string)
 	local latches = self._runtime.Latches
@@ -551,7 +551,7 @@ function Src:_grantTrove(trove)
 end
 
 -- Req "Timer": every timer is bound to this module's lifetime, so the commonest
--- Roblox leak -- a delayed call firing into a torn-down module -- cannot happen.
+-- Roblox leak, a delayed call firing into a torn-down module, cannot happen.
 function Src:_grantTimers(scheduler)
 	self.Delay = function(_, seconds: number, fn)
 		return scheduler:Timer(seconds, fn, false, self.Name)

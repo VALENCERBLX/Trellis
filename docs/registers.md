@@ -53,7 +53,7 @@ when they are created.
 You cannot delete a field with `Edit`. `{ Name = nil }` is not a table with a nil
 value; it is a table with no `Name` key, so the merge never sees it. Use `Swap` or
 `Rem`. And `Edit` on a non-table value has nothing to merge into, so it behaves as
-`Swap` — the two are identical for scalars.
+`Swap`. The two are identical for scalars.
 
 ### Only Cat creates a category
 
@@ -68,7 +68,7 @@ Without that, `Reg:Edit("Comabt.Health", 5)` grows a phantom branch and the regi
 becomes a bag of strings. A missing *value* is different: it reads as `nil`, because a
 value may legitimately be unset.
 
-`Cat` scopes into a declared category and returns a register rooted there — the same
+`Cat` scopes into a declared category and returns a register rooted there, the same
 move as `Src:Local(domain)` scoping the bus. Under a category declared
 `Dynamic = true`, `Cat` creates. Under any other, it refuses.
 
@@ -98,7 +98,7 @@ The default matters: **a path matching no policy is server-only**, so forgetting
 policy fails closed rather than open. The longest matching prefix wins, so
 `["Stats.*"]` and `["Stats.Cosmetic.*"]` can differ.
 
-Every verb returns a promise on both sides — already resolved on the server — so a
+Every verb returns a promise on both sides, already resolved on the server, so a
 side-split Service can move sides without a rewrite.
 
 The client mirror does not move until the server echoes. Opt into prediction per call:
@@ -111,7 +111,7 @@ The value applies locally at once and rolls back if the server refuses. It is of
 default because a silent rollback is worse than a frame of latency for most things.
 
 A client-requested `Cat` obeys `Dynamic`. Only the server's own echo is trusted to
-create a category anywhere — otherwise a client could grow the tree without limit.
+create a category anywhere. Otherwise a client could grow the tree without limit.
 
 ## Bubbling
 

@@ -3,7 +3,7 @@
 -- Tenv.luau
 -- Valence
 --
--- `Trellis.__Tenv_(spec)` -- a whole app booted with no Roblox instances at all.
+-- `Trellis.__Tenv_(spec)` boots a whole app with no Roblox instances at all.
 -- Plain-Lua signals for every channel, fake players, and a clock YOU advance, so a
 -- test is deterministic rather than hopeful.
 --
@@ -26,9 +26,9 @@
 --   T.App:Get("CombatManager")
 --   T:Stop()
 --
--- The seam is the same one the framework's own suite runs on -- Bootstrap already
--- takes its IO, its services and its clock as parameters -- so a test environment is
--- honest about what it fakes rather than reimplementing the boot.
+-- The seam is the same one the framework's own suite runs on. Bootstrap already takes
+-- its IO, its services and its clock as parameters, so a test environment is honest
+-- about what it fakes rather than reimplementing the boot.
 
 local Tenv = {}
 Tenv.__index = Tenv
@@ -299,8 +299,8 @@ end
 
 -- ====================================================================== driving ===
 
--- One frame. Advances the clock, then runs the drivers -- so throttled heartbeats
--- and timers behave exactly as they would in game, at whatever rate you choose.
+-- One frame. Advances the clock, then runs the drivers, so throttled heartbeats and
+-- timers behave exactly as they would in game, at whatever rate you choose.
 function Tenv:Step(dt: number?)
 	local step = dt or (1 / 60)
 	self.Time += step

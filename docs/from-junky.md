@@ -1,6 +1,6 @@
 # Coming from Junky
 
-Trellis is the successor to Junky, which implemented SSJA — Single Script Junction
+Trellis is the successor to Junky, which implemented SSJA: Single Script Junction
 Architecture. If you have a game on Junky, this is what moved and why.
 
 ## What survived
@@ -47,8 +47,8 @@ generates one per bin from the folder name, so a `Config/` folder produces `:Get
 with no framework change. `Src.Main.Packages.Lume` reaches the same cache by path.
 
 This also removed a class of bug. Junky resolved by `FindFirstChild`, so two modules
-with the same name in different roots silently picked one — the exact failure that put
-a stale `Lume` into production. A duplicate is now a boot error naming both paths.
+with the same name in different roots silently picked one. That is the exact failure
+that put a stale `Lume` into production. A duplicate is now a boot error naming both paths.
 
 ## Namespaces still exist, direction no longer does
 
@@ -94,7 +94,7 @@ function(payload, from)
 
 `from` is `nil` for anything internal. It is not a field on the context, because a
 per-module singleton's field gets overwritten by the next event whenever a handler
-yields — and this is the value authority is gated on.
+yields, and this is the value authority is gated on.
 
 ## Guards became Fences
 
@@ -111,9 +111,9 @@ Junction.Fence = {
 ## Capabilities are new
 
 Junky injected the same context into everything. Trellis makes anything with a runtime
-cost opt-in through `Req` — heartbeats, player events, tag events, timers, troves,
-profiling — and moves their configuration into `BootOrder`, so performance is tuned in
-one file rather than across forty.
+cost opt-in through `Req`: heartbeats, player events, tag events, timers, troves and
+profiling. Their configuration moves into `BootOrder`, so performance is tuned in one
+file rather than across forty.
 
 ## Registers are new
 
