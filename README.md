@@ -338,89 +338,78 @@ at any rate.
 
 ---
 
-## Workers
+## Double-sided Services
 
-A Worker is a client module that lives on the **server** until it is needed.
-
-```
-ServerStorage/Modules/Services/TService     the server half, stays put
-ServerStorage/Modules/Workers/TService      the client half, deployed on join
-```
-
-Neither replicates at rest. Nothing about the Worker exists in the client tree, and a
-client that is never deployed to never receives the code.
+A Service can have a client half without either half living in a replicated container.
 
 ```lua
--- Workers/Scout
-local Scout = {}
-Scout.Req = { "Heart", "Trove" }
+-- ServerStorage/Modules/Services/TService        never replicates at rest
+local RunService = game:GetService("RunService")
 
-function Scout:__Recip(payload)      -- what the server sent with it
-    self.Target = payload.Target
+local TService = {}
+
+function TService:Start()
+    warn("server half")
 end
 
-function Scout:Start(Src)             -- then it is an ordinary module
-    Src:Network("Combat"):Subscribe("Hit", function(p) end)
+function TService:__Serve()             -- returns the CLIENT half
+    local Client = {}
+    function Client:Test()
+        return "Is Client? " .. tostring(RunService:IsClient())
+    end
+    return Client
 end
 
-function Scout:Heartbeat(dt) end
-function Scout:Stop() end
+return TService
 ```
 
 ```lua
--- server, from any Manager
-Src:Deploy("Scout", player, { Target = workspace.Boss })   -- one player
-Src:Deploy("Scout", "all", payload)                        -- everyone
-Src:Recall("Scout", player)                                -- :Stop, then remove
-```
-
-The client declares nothing. Trellis watches for arrivals, requires each one, calls
-`__Recip` with the server's payload, and boots it with the full lifecycle: `Req`,
-`Start`, `Ready`, fences, timers, troves. On recall it runs `:Stop`, tears down the
-subscriptions and timers, and forgets the module.
-
-Delivery is by instance, not by string. A Worker is a real ModuleScript the whole way,
-so it is full Luau at native speed with real type checking, and there is no compiler,
-no source extraction and no build step anywhere in it.
-
-### Two ways to be a Service's client half
-
-**A client Service of the same name**, authored in the client tree like any other
-module. It defines `__Recip`, and the server's `__Serve()` payload reaches it before
-anything starts:
-
-```lua
--- ServerStorage/Modules/Services/TService
-function TService:__Serve() return { Difficulty = 3 } end
-
 -- Client/Modules/Services/TService
-function TService:__Recip(served) self.Difficulty = served.Difficulty end
-function TService:Start(Src) end
+local TService = {}
+
+function TService:__Recip(served)       -- receives what __Serve built
+    self.Served = served
+end
+
+return TService
 ```
-
-Both halves are written in place, one per side, sharing a name. Nothing is deployed;
-the client half was always there and simply learns what the server worked out. This is
-the ordinary case.
-
-**Or a Worker named after the Service**, when the client half should not exist on the
-client until the server sends it. It goes out on join carrying the same payload:
 
 ```lua
--- Services/TService, on the server
-function TService:Start() end
-function TService:__Serve()
-    return { Difficulty = 3 }        -- data, sent alongside the Worker
-end
+-- any Controller
+local TService = Src:GetService("TService")
+warn(TService:Test())                   --> Is Client? true
 ```
 
-An unpaired Worker waits until something calls `Src:Deploy`, which is where this gets
-useful: a boss agent for the players in that arena, a tutorial agent for new accounts,
-a debug agent for staff. Code that most clients never see at all.
+**`__Serve` runs on the client, not the server.** On join, Trellis clones the Service's
+own ModuleScript into that player's `PlayerGui`, which replicates to them and nobody
+else. The client requires the copy and calls `__Serve` there, so the table it returns
+is built on that machine and its functions are real ones rather than something that had
+to survive a remote.
 
-The honest limit: a client that **does** receive a Worker can read it, as it can read
-any code it runs. What you gain is that the code is not sitting in `ReplicatedStorage`
-for every client and every idle exploiter to browse, and that delivery is a decision
-rather than a default.
+The client half then receives it through `__Recip`, and anything `__Recip` leaves
+untouched is copied across, so the served methods are simply there. The result is an
+ordinary Service: `Src:GetService("TService")` reaches it, `Req` and fences apply, and
+`:Stop` runs on teardown.
+
+With no client half at all, what `__Serve` returns *is* the Service.
+
+### Deploying by hand
+
+The same machinery is available directly, for code that should reach only some clients.
+A `Workers` bin holds modules that are never Services on the server:
+
+```lua
+Src:Deploy("Scout", player)     -- one player, via PlayerGui
+Src:Deploy("Scout", "all")      -- everyone, via ReplicatedStorage
+Src:Recall("Scout", player)     -- :Stop, then remove
+```
+
+A boss agent for the players in that arena, a tutorial agent for new accounts, a debug
+agent for staff. Clients who never qualify never receive the module and cannot read it.
+
+The honest limit: a client that **does** receive one can read it, as it can read any
+code it runs. What you gain is that the code is not sitting in `ReplicatedStorage` for
+every client to browse, and that delivery is a decision rather than a default.
 
 ---
 

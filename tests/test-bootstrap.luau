@@ -337,239 +337,173 @@ do
 end
 
 -- ==================================================================== Workers ===
+--
+-- The server Service keeps its half in ServerStorage and defines :__Serve returning
+-- the client half. That module is cloned to each player on join; the CLIENT runs
+-- __Serve from the copy, so the table it gets back was built there and its functions
+-- are real. The client's own half receives it through :__Recip, and the result is an
+-- ordinary Service reached with :GetService.
 
--- a map with no Destinations, so these cases exercise Workers rather than routing
 local BARE_MAP = { Network = { Ping = { Send = {} } } }
-
 local signal, live = H.signal, H.live
 
 do
-	-- shared world: the server deploys into it, the client watches it
 	local RS = live("ReplicatedStorage", "ReplicatedStorage")
 	local ada = live("Player", "Ada")
 	ada.UserId = 1
 	local gui = live("Folder", "PlayerGui")
 	gui.Parent = ada
 
-	local trace = { Order = {} }
+	local trace = {}
 
-	local workerBody = {}
-	function workerBody:__Recip(payload)
-		table.insert(trace.Order, "__Recip")
-		self.Payload = payload
+	-- the server half, exactly the shape a game would write
+	local serverHalf = {}
+	function serverHalf:Start()
+		table.insert(trace, "server:Start")
 	end
-	function workerBody:Start()
-		table.insert(trace.Order, "Start")
-	end
-	function workerBody:Stop()
-		table.insert(trace.Order, "Stop")
-	end
-
-	local serverHalf = gameModule("TService")
-	serverHalf.__Serve = function()
-		return { Difficulty = 3 }
+	function serverHalf:__Serve()
+		table.insert(trace, "__Serve")
+		local Client = {}
+		function Client:Test()
+			return "client speaking"
+		end
+		return Client
 	end
 
-	local workerModule = live("ModuleScript", "TService", workerBody)
-
-	local serveRemote = { InvokeServer = function(_, name)
-		return { Difficulty = 3 }
-	end }
-	local io = {
-		New = function(_, domain)
-			return domain == "__Serve" and serveRemote or {}
-		end,
-		Wait = function(domain)
-			return domain == "__Serve" and serveRemote or {}
-		end,
-	}
+	-- the client half
+	local clientHalf = {}
+	function clientHalf:__Recip(served)
+		table.insert(trace, "__Recip")
+		self.Got = served
+	end
 
 	local players = {
 		GetPlayers = function()
 			return { ada }
 		end,
-		PlayerAdded = signal(),
-		PlayerRemoving = signal(),
+		PlayerAdded = { Connect = function()
+			return { Disconnect = function() end }
+		end },
+		PlayerRemoving = { Connect = function()
+			return { Disconnect = function() end }
+		end },
 		LocalPlayer = ada,
 	}
-	players.PlayerAdded = { Connect = function(_, fn)
-		return { Disconnect = function() end }
-	end }
-	players.PlayerRemoving = { Connect = function(_, fn)
-		return { Disconnect = function() end }
+
+	local serviceModule = live("ModuleScript", "TService", serverHalf)
+	local io = { New = function()
+		return {}
+	end, Wait = function()
+		return {}
 	end }
 
-	local serverTree = {
-		folder("Shared", {
+	local function shared()
+		return folder("Shared", {
 			folder("Config", {
 				module("Junction", BARE_MAP),
 				module("BootOrder", { Order = {}, Config = {} }),
 			}),
-		}),
-		folder("Server", {
-			folder("Services", { module("TService", serverHalf) }),
-			(function()
-				local f = folder("Workers", {})
-				workerModule._parent = nil
-				table.insert(f._children, workerModule)
-				return f
-			end)(),
-		}),
-	}
+		})
+	end
 
-	local server = Bootstrap.Configure({ Hierarchy = serverTree }, opts({
-		IO = io,
-		Players = players,
-		ReplicatedStorage = RS,
-	}))
+	local serverServices = folder("Services", {})
+	table.insert(serverServices._children, serviceModule)
 
-	check("a Worker paired with a Service deploys on join", gui:FindFirstChild("__TrellisWorkers") ~= nil)
+	local server = Bootstrap.Configure({
+		Hierarchy = { shared(), folder("Server", { serverServices }) },
+	}, opts({ IO = io, Players = players, ReplicatedStorage = RS }))
+
+	check("the server did NOT run __Serve", table.concat(trace, ",") == "server:Start", table.concat(trace, ","))
+
 	local delivered = gui:FindFirstChild("__TrellisWorkers")
-	check("...into the player's own container", delivered and delivered:FindFirstChild("TService") ~= nil)
-	check("the Worker never booted on the server", server:Get("TService").Payload == nil)
+	check("the Service module was delivered to the player", delivered ~= nil and delivered:FindFirstChild("TService") ~= nil)
 
-	-- now the client, watching the same world
-	local clientTree = {
-		folder("SharedC", {
-			folder("Config", {
-				module("Junction", BARE_MAP),
-				module("BootOrder", { Order = {}, Config = {} }),
-			}),
-		}),
-	}
-	local client = Bootstrap.Configure({ Hierarchy = clientTree }, opts({
-		Side = "Client",
-		IO = io,
-		Players = players,
-		ReplicatedStorage = RS,
-	}))
+	-- the client, with its own half of the same name
+	local client = Bootstrap.Configure({
+		Hierarchy = {
+			shared(),
+			folder("Client", { folder("Services", { module("TService", clientHalf) }) }),
+		},
+	}, opts({ Side = "Client", IO = io, Players = players, ReplicatedStorage = RS }))
 
-	check("the client adopted the delivered Worker", client:Get("TService") ~= nil)
-	check("...as a Service, not some separate kind", table.concat(client:List("Service"), ",") == "TService", table.concat(client:List("Service"), ","))
-	check("__Recip ran, then Start", table.concat(trace.Order, ",") == "__Recip,Start", table.concat(trace.Order, ","))
-	check("...with the server's payload", client:Get("TService").Payload.Difficulty == 3)
+	check("__Serve ran on the CLIENT", table.find(trace, "__Serve") ~= nil, table.concat(trace, ","))
+	check("...then __Recip received what it built", clientHalf.Got ~= nil and type(clientHalf.Got.Test) == "function")
 
-	-- recall
-	server.Src:Recall("TService", ada)
-	check("Recall removed it", delivered:FindFirstChild("TService") == nil)
-	check("...and the client stopped it", trace.Order[#trace.Order] == "Stop", table.concat(trace.Order, ","))
-	check("...and forgot the module", client:Get("TService") == nil)
-
-	expectError("deploying an unknown Worker lists the real ones", function()
-		server.Src:Deploy("Ghost", ada)
-	end, 'no Worker named "Ghost". Workers here: TService')
-
-	expectError("Deploy is server-only", function()
-		client.Src:Deploy("TService", ada)
-	end, ":Deploy is server-only")
+	local svc = client:Get("TService")
+	check("GetService reaches it", svc ~= nil)
+	check("...and its served methods are callable", svc and svc:Test() == "client speaking", svc and tostring(svc.Test))
+	check("it is a Service, not some other kind", table.concat(client:List("Service"), ",") == "TService", table.concat(client:List("Service"), ","))
 
 	server:Stop()
 	client:Stop()
 end
 
--- ============================== a client Service receives its server counterpart ===
--- The other half of double-sided Services, and the ordinary one: both halves are
--- authored in place, one per side, sharing a name. The server's __Serve payload
--- reaches the client half's __Recip before anything starts.
-
 do
-	local trace = {}
+	-- no client half at all: what __Serve returns simply becomes the Service
+	local RS = live("ReplicatedStorage", "ReplicatedStorage")
+	local ada = live("Player", "Ada")
+	ada.UserId = 2
+	local gui = live("Folder", "PlayerGui")
+	gui.Parent = ada
 
-	local serverHalf = gameModule("EchoService")
-	serverHalf.__Serve = function()
-		return { Greeting = "hello", Count = 2 }
-	end
-
-	local clientHalf = {}
-	function clientHalf:__Recip(served)
-		table.insert(trace, "__Recip")
-		self.Served = served
-	end
-	function clientHalf:Start()
-		table.insert(trace, "Start:" .. tostring(self.Served.Greeting))
-	end
-
-	local payloads
-	local serveRemote = {}
-	function serveRemote:InvokeServer(name)
-		if name == nil then
-			return payloads
+	local started = false
+	local serverHalf = {}
+	function serverHalf:Start() end
+	function serverHalf:__Serve()
+		local Client = {}
+		function Client:Start()
+			started = true
 		end
-		return payloads and payloads[name]
+		function Client:Test()
+			return "standalone"
+		end
+		return Client
 	end
-	local io = {
-		New = function(_, domain)
-			return domain == "__Serve" and serveRemote or {}
-		end,
-		Wait = function(domain)
-			return domain == "__Serve" and serveRemote or {}
-		end,
-	}
 
-	local function config(sideFolder)
-		return {
-			folder("Shared", {
-				folder("Config", {
-					module("Junction", { Network = { Ping = { Send = {} } } }),
-					module("BootOrder", { Order = {}, Config = {} }),
-				}),
+	local players = {
+		GetPlayers = function()
+			return { ada }
+		end,
+		PlayerAdded = { Connect = function()
+			return { Disconnect = function() end }
+		end },
+		PlayerRemoving = { Connect = function()
+			return { Disconnect = function() end }
+		end },
+		LocalPlayer = ada,
+	}
+	local io = { New = function()
+		return {}
+	end, Wait = function()
+		return {}
+	end }
+
+	local svcFolder = folder("Services", {})
+	table.insert(svcFolder._children, live("ModuleScript", "Solo", serverHalf))
+
+	local function shared()
+		return folder("Shared", {
+			folder("Config", {
+				module("Junction", BARE_MAP),
+				module("BootOrder", { Order = {}, Config = {} }),
 			}),
-			sideFolder,
-		}
+		})
 	end
 
 	local server = Bootstrap.Configure({
-		Hierarchy = config(folder("Server", { folder("Services", { module("EchoService", serverHalf) }) })),
-	}, opts({ IO = io }))
-
-	payloads = serveRemote.OnServerInvoke and serveRemote.OnServerInvoke() or nil
-	check("the server cached its __Serve payload", payloads ~= nil and payloads.EchoService.Greeting == "hello")
+		Hierarchy = { shared(), folder("Server", { svcFolder }) },
+	}, opts({ IO = io, Players = players, ReplicatedStorage = RS }))
 
 	local client = Bootstrap.Configure({
-		Hierarchy = config(folder("Client", { folder("Services", { module("EchoService", clientHalf) }) })),
-	}, opts({ Side = "Client", IO = io }))
+		Hierarchy = { shared() },
+	}, opts({ Side = "Client", IO = io, Players = players, ReplicatedStorage = RS }))
 
-	check("the client half received it", clientHalf.Served ~= nil and clientHalf.Served.Count == 2)
-	check("__Recip ran BEFORE :Start", table.concat(trace, ",") == "__Recip,Start:hello", table.concat(trace, ","))
-	check("...and it is an ordinary Service", client:Get("EchoService") == clientHalf)
+	check("with no client half, the served table IS the Service", client:Get("Solo") ~= nil)
+	check("...and it was started", started)
+	check("...and answers", client:Get("Solo"):Test() == "standalone")
 
 	server:Stop()
 	client:Stop()
-end
-
-do
-	-- a client half with nobody serving it says so
-	H.warnings.clear()
-	local lonely = {}
-	function lonely:__Recip() end
-	function lonely:Start() end
-
-	local remote = { InvokeServer = function()
-		return {}
-	end }
-	local io2 = {
-		New = function(_, d)
-			return d == "__Serve" and remote or {}
-		end,
-		Wait = function(d)
-			return d == "__Serve" and remote or {}
-		end,
-	}
-
-	local app = Bootstrap.Configure({
-		Hierarchy = {
-			folder("Shared", {
-				folder("Config", {
-					module("Junction", { Network = { Ping = { Send = {} } } }),
-					module("BootOrder", { Order = {}, Config = {} }),
-				}),
-			}),
-			folder("Client", { folder("Services", { module("LonelyService", lonely) }) }),
-		},
-	}, opts({ Side = "Client", IO = io2 }))
-
-	T.warned("an unserved __Recip warns", 'no Service named "LonelyService" on the server')
-	app:Stop()
 end
 
 -- ======================================== BootOrder is shared across both sides ===

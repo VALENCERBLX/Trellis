@@ -187,58 +187,11 @@ end
 
 local SERVE_TIMEOUT = 10
 
--- Functions, threads and userdata do not survive a remote. Catching that here names
--- the exact key rather than leaving the client with a table full of holes.
-local function unsendable(value, path: string, found: { string }, depth: number)
-	local kind = type(value)
-
-	if kind == "function" or kind == "thread" then
-		table.insert(found, string.format("%s is a %s", path, kind))
-		return
-	end
-	if kind ~= "table" then
-		return
-	end
-	if depth > 6 then
-		return
-	end
-	if getmetatable(value) ~= nil then
-		table.insert(found, string.format("%s has a metatable, which is stripped in transit", path))
-	end
-
-	for key, inner in value do
-		unsendable(inner, path .. "." .. tostring(key), found, depth + 1)
-	end
-end
-
--- ==================================================================== Workers ===
---
--- A Worker is a client module that lives on the SERVER until it is needed.
---
---   ServerStorage/Modules/Services/TService     the server half, stays put
---   ServerStorage/Modules/Workers/TService      the client half, deployed on join
---
--- Neither replicates at rest. When the server deploys one, Trellis clones it into a
--- container that replicates to the chosen client, and the client adopts it: requires
--- it, hands it whatever the server sent through :__Recip, and boots it with the full
--- lifecycle. Req, fences, timers, troves and :Stop all work, because by then it is an
--- ordinary module that simply arrived late.
---
--- A Worker paired by name with a Service is deployed automatically when a player
--- joins, carrying that Service's :__Serve() payload. An unpaired Worker waits for
--- someone to ask:
---
---   Src:Deploy("Scout", player, { Target = boss })
---   Src:Deploy("Scout", "all", payload)
---   Src:Recall("Scout", player)
---
--- Clients who are never deployed to never receive the code and cannot read it.
-
+-- Where a delivered module lands. PlayerGui replicates to its own player and nobody
+-- else, which is what makes per-player delivery private rather than merely addressed.
 local function workerContainer(target, opts)
 	local ReplicatedStorage = (opts and opts.ReplicatedStorage) or game:GetService("ReplicatedStorage")
 
-	-- PlayerGui replicates to its own player and nobody else, which is what makes
-	-- per-player delivery private rather than merely per-player addressed.
 	local parent = if target == "all" then ReplicatedStorage else target:FindFirstChild("PlayerGui")
 	if not parent then
 		return nil
@@ -253,130 +206,19 @@ local function workerContainer(target, opts)
 	return folder
 end
 
--- Server: run every __Serve once and answer the client's single fetch with all of
--- them at once, so a boot costs one round trip however many Services serve.
-local function installServe(registry, modules, junction, payloads)
-	local serving = 0
-
+-- Server: a Service with :__Serve has a client half, and the way that half reaches a
+-- client is the Service's own ModuleScript, cloned over on join. __Serve is NOT run
+-- here. It runs on the client, from the delivered copy, so the table it returns is
+-- built there and its functions are real.
+local function servingServices(modules)
+	local serving = {}
 	for name, entry in modules do
-		local module = entry.Module
-		if entry.Role ~= "Service" or type(module.__Serve) ~= "function" then
-			continue
-		end
-
-		local ok, served = pcall(module.__Serve, module)
-		if not ok then
-			fail("%s:__Serve errored: %s", name, tostring(served))
-		end
-		if served ~= nil and type(served) ~= "table" then
-			fail("%s:__Serve returned a %s; it must return a table of data, or nil", name, type(served))
-		end
-
-		local problems = {}
-		unsendable(served, name, problems, 0)
-		if #problems > 0 then
-			fail(
-				"%s:__Serve returned data a remote cannot carry:\n    %s\n\n"
-					.. "    Functions cannot be sent, and cannot be worked around: Luau has no\n"
-					.. "    string.dump, a function's source cannot be read at runtime, and\n"
-					.. "    loadstring does not exist on the client. Send WHICH function\n"
-					.. "    instead of the function:\n\n"
-					.. "        -- server\n"
-					.. "        return { Behavior = \"Aggressive\" }\n\n"
-					.. "        -- client, where the code already lives\n"
-					.. "        self.Behave = Behaviors[served.Behavior]\n",
-				name,
-				table.concat(problems, "\n    ")
-			)
-		end
-
-		payloads[name] = served or {}
-		serving += 1
-	end
-
-	local remote = junction:Instance("Network.__Serve.Fetch")
-	if remote then
-		-- No argument returns everything, which is the boot-time fetch. A name
-		-- returns one payload, which is what an adopting Worker asks for.
-		remote.OnServerInvoke = function(_player, name)
-			if name == nil then
-				return payloads
-			end
-			return payloads[name]
+		if entry.Role == "Service" and type(entry.Module.__Serve) == "function" then
+			table.insert(serving, name)
 		end
 	end
-
+	table.sort(serving)
 	return serving
-end
-
--- Client: a Service that defines :__Recip is the client half of a server Service of
--- the same name. It is authored in the client tree like any other module; what it
--- cannot know is whatever the server worked out at boot, so that arrives here.
---
--- One fetch covers every such Service, and it happens before any :Start, so a half
--- can rely on its served data being present by the time it starts.
-local function receiveServe(modules, junction)
-	local hosts = {}
-	for name, entry in modules do
-		if entry.Role == "Service" and type(entry.Module.__Recip) == "function" then
-			hosts[name] = entry
-		end
-	end
-
-	if next(hosts) == nil then
-		return 0
-	end
-
-	local remote = junction:Instance("Network.__Serve.Fetch")
-	local payloads = {}
-	if remote then
-		local ok, fetched = pcall(function()
-			return remote:InvokeServer()
-		end)
-		if ok and type(fetched) == "table" then
-			payloads = fetched
-		else
-			warn(
-				string.format(
-					"[Trellis] could not fetch __Serve payloads (%s); client Services start "
-						.. "without their served data",
-					tostring(fetched)
-				)
-			)
-		end
-	end
-
-	local received = 0
-	for name, entry in hosts do
-		local served = payloads[name]
-		if served == nil then
-			warn(
-				string.format(
-					"[Trellis] %s defines :__Recip, but no Service named %q on the server "
-						.. "defines :__Serve, so there is nothing to receive.",
-					name,
-					name
-				)
-			)
-			continue
-		end
-
-		-- A host that RETURNS a table becomes that table. Reassigning a local inside
-		-- :__Recip does nothing: the module table was already returned, so the
-		-- framework is holding the original.
-		local ok, replacement = pcall(entry.Module.__Recip, entry.Module, served)
-		if not ok then
-			fail("%s:__Recip errored: %s", name, tostring(replacement))
-		end
-		if type(replacement) == "table" then
-			setmetatable(entry.Module, nil)
-			entry.Module = replacement
-			setmetatable(replacement, { __index = entry.Src })
-		end
-		received += 1
-	end
-
-	return received
 end
 
 -- ============================================================ 7. the boot order ===
@@ -636,12 +478,6 @@ function Bootstrap.Configure(config, opts)
 	-- 5b -------------------------------------------------------------- Workers
 	-- Before anything starts, so a __Recip host can rely on its served data being
 	-- there by the time :Start runs.
-	local payloads = {}
-	local deployments = {}
-
-	if side == "Server" then
-		installServe(registry, modules, junction, payloads)
-	end
 
 	-- 6 ------------------------------------------------------------- registers
 	local log = if config.Log then Log.new(config.Log, opts.Clock) else nil
@@ -744,11 +580,6 @@ function Bootstrap.Configure(config, opts)
 
 	end
 
-	-- 8b ------------------------------------------------ served client Services
-	if side == "Client" then
-		receiveServe(modules, junction)
-	end
-
 	-- 9 --------------------------------------------------------------- :Start
 	for _, name in order do
 		local entry = modules[name]
@@ -814,12 +645,27 @@ function Bootstrap.Configure(config, opts)
 	end
 
 	if side == "Server" then
-		runtime.Deploy = function(name: string, target: any, payload: any)
-			local bin = registry._bins[WORKER_BIN]
-			local entry = bin and bin[name]
+		-- A Worker is any ModuleScript on the server that a client is meant to run.
+		-- Deploy finds it in the Workers bin, or falls back to the Service of that
+		-- name, since a serving Service delivers its own module.
+		runtime.Deploy = function(name: string, target: any)
+			local workerBin = registry._bins[WORKER_BIN]
+			local entry = workerBin and workerBin[name]
+			if not entry then
+				local serviceBin = registry._bins.Service
+				entry = serviceBin and serviceBin[name]
+			end
+
 			if not entry or not entry.Source then
-				local known = registry._bins[WORKER_BIN] and registry:Names(WORKER_BIN) or {}
-				fail("no Worker named %q. Workers here: %s", name, table.concat(known, ", "))
+				local known = {}
+				for _, bin in { WORKER_BIN, "Service" } do
+					if registry._bins[bin] then
+						for _, n in registry:Names(bin) do
+							table.insert(known, n)
+						end
+					end
+				end
+				fail("nothing named %q to deploy. available: %s", name, table.concat(known, ", "))
 			end
 
 			local container = workerContainer(target, opts)
@@ -833,7 +679,6 @@ function Bootstrap.Configure(config, opts)
 				existing:Destroy()
 			end
 
-			payloads[name] = payload
 			local clone = entry.Source:Clone()
 			clone.Name = name
 			clone.Parent = container
@@ -850,27 +695,19 @@ function Bootstrap.Configure(config, opts)
 			return false
 		end
 
-		-- A Worker paired by name with a Service is that Service's client half, so
-		-- it goes out on join without anybody asking.
-		if registry._bins[WORKER_BIN] then
-			local paired = {}
-			for _, name in registry:Names(WORKER_BIN) do
-				if modules[name] and modules[name].Role == "Service" then
-					table.insert(paired, name)
+		-- Every Service with :__Serve sends its own module over on join. The client
+		-- runs __Serve from that copy, so the half it returns is built there.
+		local serving = servingServices(modules)
+		if #serving > 0 then
+			local players = opts.Players or game:GetService("Players")
+			local function serveTo(player)
+				for _, name in serving do
+					runtime.Deploy(name, player)
 				end
 			end
-
-			if #paired > 0 then
-				local players = opts.Players or game:GetService("Players")
-				local function serveTo(player)
-					for _, name in paired do
-						runtime.Deploy(name, player, payloads[name])
-					end
-				end
-				table.insert(housekeeping, players.PlayerAdded:Connect(serveTo))
-				for _, player in players:GetPlayers() do
-					task.spawn(serveTo, player)
-				end
+			table.insert(housekeeping, players.PlayerAdded:Connect(serveTo))
+			for _, player in players:GetPlayers() do
+				task.spawn(serveTo, player)
 			end
 		end
 	else
@@ -903,45 +740,54 @@ function Bootstrap.Configure(config, opts)
 				return
 			end
 
-			-- The Worker carries the SOURCE. Where a client half of the same name
-			-- already exists and defines :__Recip, that half is the Service and this
-			-- is what it was waiting for: hand it over and leave it as it is.
+			-- __Serve runs HERE, on the client, from the delivered copy. The table it
+			-- returns is therefore built on this machine, so its functions are real
+			-- ones rather than something that had to survive a remote.
+			local served = module
+			if type(module.__Serve) == "function" then
+				local okServe, result = pcall(module.__Serve, module)
+				if not okServe then
+					warn(string.format("[Trellis] %s:__Serve errored on the client: %s", name, tostring(result)))
+					return
+				end
+				if type(result) ~= "table" then
+					warn(string.format("[Trellis] %s:__Serve returned a %s, not a table", name, type(result)))
+					return
+				end
+				served = result
+			end
+
+			-- A client half of the same name is what this was sent to. Hand it over,
+			-- then copy across anything it did not take: :__Recip loads everything.
 			if host then
-				local ok2, replacement = pcall(host.Module.__Recip, host.Module, module)
-				if not ok2 then
+				local okRecip, replacement = pcall(host.Module.__Recip, host.Module, served)
+				if not okRecip then
 					warn(string.format("[Trellis] %s:__Recip errored: %s", name, tostring(replacement)))
 					return
 				end
-				if type(replacement) == "table" then
-					setmetatable(host.Module, nil)
-					host.Module = replacement
-					setmetatable(replacement, { __index = host.Src })
-					registry:Mount("Service", name, replacement)
+
+				local target = if type(replacement) == "table" then replacement else host.Module
+				if target ~= served then
+					for key, value in served do
+						if rawget(target, key) == nil then
+							rawset(target, key, value)
+						end
+					end
 				end
+
+				if target ~= host.Module then
+					setmetatable(host.Module, nil)
+					host.Module = target
+					setmetatable(target, { __index = host.Src })
+				end
+
+				registry:Mount("Service", name, target)
 				return
 			end
 
-			-- No client half, so the Worker IS the Service. It still gets whatever
-			-- __Serve returned, then boots like anything else.
-			local entry = { Name = name, Role = "Service", Module = module, Source = instance }
-
-			if type(module.__Recip) == "function" then
-				local remote = junction:Instance("Network.__Serve.Fetch")
-				local fetched, payload = pcall(function()
-					return remote:InvokeServer(name)
-				end)
-				local recipOk, replacement = pcall(module.__Recip, module, fetched and payload or nil)
-				if not recipOk then
-					warn(string.format("[Trellis] %s:__Recip errored: %s", name, tostring(replacement)))
-					return
-				end
-				if type(replacement) == "table" then
-					entry.Module = replacement
-				end
-			end
-
-			-- Mounted as a SERVICE, so Src:GetService(name) reaches it like any other.
-			registry:Mount("Service", name, entry.Module)
+			-- No client half, so what __Serve returned IS the Service.
+			local entry = { Name = name, Role = "Service", Module = served, Source = instance }
+			registry:Mount("Service", name, served)
 			bootModule(entry, tuning[name])
 		end
 
