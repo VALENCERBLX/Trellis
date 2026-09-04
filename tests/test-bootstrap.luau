@@ -303,7 +303,7 @@ end, 'HudController requests "Player", which is Server-only (this is the Client)
 
 expectError("no Junction anywhere", function()
 	return Bootstrap.Configure({ Hierarchy = { folder("Empty", { folder("Packages", {}) }) } }, opts())
-end, "no Junction. Put it in the Config bin")
+end, "no Junction. Put it in a Config folder or a Config module")
 
 expectError("Configure without a Hierarchy", function()
 	return Bootstrap.Configure({}, opts())
@@ -423,6 +423,47 @@ do
 		}
 		return Bootstrap.Configure({ Hierarchy = h }, opts({ Side = "Client" }))
 	end, 'duplicate Service "GhostService", mounted from:')
+end
+
+-- ============================ Config as a MODULE rather than a folder ===
+-- Utilities/Config holding Junction as a child, which is how a place laid out the
+-- Junky way keeps it. No Config bin exists, so Configure has to look inside.
+do
+	local MAP = { Network = { Ping = { Send = {} } } }
+
+	local configModule = module("Config", {})
+	table.insert(configModule._children, module("Junction", MAP))
+	configModule._children[#configModule._children]._parent = configModule
+
+	local h = {
+		folder("Shared", {
+			folder("Utilities", { configModule }),
+			folder("Services", { module("EchoService", (function()
+				local m = {}
+				function m:Start() end
+				return m
+			end)()) }),
+		}),
+	}
+
+	local app = Bootstrap.Configure({ Hierarchy = h }, opts())
+	check("a Config MODULE is found without a Config bin", app ~= nil)
+	check("...and its child Junction was used", app:Inspect().Routes[1].Path == "Network.Ping.Send", app:Inspect().Routes[1].Path)
+	check("...while the module itself stays a normal Utility entry", table.concat(app:Inspect().Bins, ",") == "Service,Utility", table.concat(app:Inspect().Bins, ","))
+	app:Stop()
+end
+
+do
+	-- the same, but the Config module re-exports rather than relying on children
+	local MAP = { Network = { Pong = { Send = {} } } }
+	local h = {
+		folder("Shared", {
+			folder("Utilities", { module("Config", { Junction = MAP }) }),
+		}),
+	}
+	local app = Bootstrap.Configure({ Hierarchy = h }, opts())
+	check("a Config module's returned table wins", app:Inspect().Routes[1].Path == "Network.Pong.Send", app:Inspect().Routes[1].Path)
+	app:Stop()
 end
 
 T.done()

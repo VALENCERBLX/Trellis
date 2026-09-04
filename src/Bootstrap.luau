@@ -75,8 +75,16 @@ end
 
 -- ========================================================== 3. loading config ===
 
--- Junction / BootOrder / Registers are ordinary modules in the Config bin, so the
--- normal Bootstrap passes none of them. An explicit value in the payload wins.
+-- Junction / BootOrder / Registers are ordinary modules, so the normal Bootstrap
+-- passes none of them. They are looked for in three places, in order:
+--
+--   1. the Configure payload, if you passed one explicitly
+--   2. a Config BIN, which is a Config/ folder beside Packages/ and Utilities/
+--   3. a Config MODULE filed in any bin, read from its returned table and then from
+--      its children, so `Utilities/Config` holding Junction as a child works too
+--
+-- Rule 3 exists because a module-with-children is as common a way to keep config as
+-- a folder is, and neither should need spelling out in the Bootstrap.
 local function loadConfig(registry, config, name: string, required: boolean)
 	if config[name] ~= nil then
 		return config[name]
@@ -87,9 +95,24 @@ local function loadConfig(registry, config, name: string, required: boolean)
 		return registry:GetConfig(name)
 	end
 
+	local module, entry = registry:Find("Config")
+	if type(module) == "table" and module[name] ~= nil then
+		return module[name]
+	end
+	local source = entry and entry.Source
+	if source ~= nil and (type(source) == "userdata" or type(source) == "table") then
+		local ok, child = pcall(function()
+			return source:FindFirstChild(name)
+		end)
+		if ok and child then
+			return registry:Load({ Name = name, Source = child, Origin = "Config." .. name, Loaded = false })
+		end
+	end
+
 	if required then
 		fail(
-			"no %s. Put it in the Config bin as Config.%s, or pass %s = require(...) to Configure",
+			"no %s. Put it in a Config folder or a Config module as Config.%s, "
+				.. "or pass %s = require(...) to Configure",
 			name,
 			name,
 			name

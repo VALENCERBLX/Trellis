@@ -260,6 +260,18 @@ function Registry:Load(entry: Entry): any
 	return self:_load(entry)
 end
 
+-- The first entry with this name, in any bin, with the entry beside it. Used to find
+-- a Config module wherever it was filed, without caring which bin that was.
+function Registry:Find(name: string): (any, Entry?)
+	for binName in self._bins do
+		local entry = self._bins[binName][name]
+		if entry then
+			return self:_load(entry), entry
+		end
+	end
+	return nil, nil
+end
+
 function Registry:Resolve(binName: string, name: string, optional: boolean?): any
 	local claims = self:Claims(binName, name)
 	if claims then

@@ -58,6 +58,15 @@ function Node:GetFullName(): string
 	return table.concat(parts, ".")
 end
 
+function Node:FindFirstChild(name: string)
+	for _, child in self._children do
+		if child.Name == name then
+			return child
+		end
+	end
+	return nil
+end
+
 local function node(className: string, name: string)
 	return setmetatable({ ClassName = className, Name = name, _children = {}, _parent = nil }, Node)
 end

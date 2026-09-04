@@ -221,6 +221,15 @@ function Node:GetFullName(): string
 	return table.concat(parts, ".")
 end
 
+function Node:FindFirstChild(name: string)
+	for _, child in self._children do
+		if child.Name == name then
+			return child
+		end
+	end
+	return nil
+end
+
 function Node:Add(child)
 	child._parent = self
 	table.insert(self._children, child)
