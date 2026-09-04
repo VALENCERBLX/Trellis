@@ -41,7 +41,8 @@ local DELIVERY_TIMEOUT = 10
 -- defining one would silently shadow it, so it is a boot error instead.
 local RESERVED = {
 	"Name", "Role", "Side", "Player", "Main",
-	"Local", "Network", "Reg", "Await", "OnCleanup", "Inspect",
+	"Local", "Network", "Reg", "Channel", "Await", "OnCleanup", "Inspect",
+	"Deploy", "Recall",
 	"Trove", "Delay", "Every", "Cancel",
 	"Start", "Stop", "Ready", -- hooks: yours to define, not to be overwritten
 }
@@ -661,7 +662,7 @@ function Bootstrap.Configure(config, opts)
 			entry.Src:_teardown()
 		end
 		scheduler:Remove(name)
-		if entry.Role == "Service" and entry.Source ~= nil then
+		if entry.Deployed then
 			registry:Unmount("Service", name)
 		end
 		setmetatable(entry.Module, nil)
@@ -825,7 +826,13 @@ function Bootstrap.Configure(config, opts)
 			end
 
 			-- No client half, so what __Serve returned IS the Service.
-			local entry = { Name = name, Role = "Service", Module = served, Source = instance }
+			local entry = {
+				Name = name,
+				Role = "Service",
+				Module = served,
+				Source = instance,
+				Deployed = true, -- arrived at runtime, so retiring it must unmount it
+			}
 			registry:Mount("Service", name, served)
 
 			if startNow then

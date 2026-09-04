@@ -12,7 +12,7 @@
 
 ![Version](https://img.shields.io/badge/version-0.1.0-6C3EF4?style=for-the-badge)
 ![Luau](https://img.shields.io/badge/Luau-Roblox-A78BFA?style=for-the-badge)
-![Tests](https://img.shields.io/badge/tests-324-6C3EF4?style=for-the-badge)
+![Tests](https://img.shields.io/badge/tests-377-6C3EF4?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-MIT-6C3EF4?style=for-the-badge)
 
 </div>
@@ -188,6 +188,7 @@ end
 | Static | `:Post` `:Subscribe` `:Once`, plus `:PostTo` `:PostAll` `:PostExcept` |
 | Resolve | `:Resolve` `:Respond`, plus `:ResolveFrom(player, …)` on the server |
 | Cache | `:Reg(name)` `:Reg(name, player)` |
+| Channels | `:Channel(service)`, Services only |
 | Timing | `:Await(path)` `:OnCleanup(fn)` `:Inspect()` |
 | By `Req` | `Src.Trove` `:Delay` `:Every` `:Cancel` |
 
@@ -208,6 +209,43 @@ Inbound payloads clear three gates before a handler sees them, cheapest first:
 2. **Schema.** Declared on the entry. The rejection names the offending field.
 3. **Fences.** Your own predicates. Several modules may fence one event and all must
    pass, so a shape check and a rate limiter coexist without knowing about each other.
+
+### Channels
+
+Service to Service, directly. Not through the Junction and not over the wire: a plain
+call into the other Service on this side, so it is synchronous and returns whatever the
+handler returns.
+
+```lua
+-- CombatService
+local Memory = Src:Channel("MemoryService")
+
+local profile = Memory:Get("profile", { UserId = id })
+Memory:Patch("profile", { UserId = id, Changes = { Coins = 5 } })
+```
+
+```lua
+-- MemoryService
+function MemoryService:Get(route, payload, from)
+    if route == "profile" then
+        return self.profiles[payload.UserId]
+    end
+end
+```
+
+The verbs are the REST methods and nothing else: `Get`, `Post`, `Put`, `Patch`,
+`Delete`, `Head`, `Options`. That is the entire vocabulary, so a Service's surface to
+its peers is seven names rather than however many someone felt like inventing, and
+reading a call tells you what it does to the other side. A handler receives
+`(route, payload, from)`, where `from` is the calling Service's name.
+
+`Options` answers even when the Service does not implement it, listing the verbs it
+does. Calling a verb the target has no handler for is an error naming what it *does*
+implement.
+
+Only Services may open a channel, and only to a Service. A Controller or Manager
+reaching for one is an error: this is the seam between Services, and widening it to
+everything would make it just another way to call anything.
 
 Read more: [docs/src.md](docs/src.md)
 
@@ -476,7 +514,7 @@ Read more: [docs/testing.md](docs/testing.md)
 
 ## Status
 
-324 tests pass under Lune, and `rojo build` produces a clean model. **Trellis has not
+377 tests pass under Lune, and `rojo build` produces a clean model. **Trellis has not
 yet run inside Roblox.** Every test stubs `Instance`, `RunService` and the remotes,
 because Lune cannot run Roblox networking or physics. Run
 [`scripts/Scaffold.lua`](scripts/Scaffold.lua) in Studio and press Play before trusting

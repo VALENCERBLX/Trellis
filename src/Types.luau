@@ -180,6 +180,18 @@ export type Scope = {
 	ResolveFrom: (self: Scope, player: any, event: string, payload: any?) -> Reaction,
 }
 
+-- Service to Service, on this side, directly. The verbs are the REST methods and
+-- nothing else, so a Service's surface to its peers is seven names.
+export type Channel = {
+	Get: (self: Channel, route: string?, payload: any?) -> any,
+	Post: (self: Channel, route: string?, payload: any?) -> any,
+	Put: (self: Channel, route: string?, payload: any?) -> any,
+	Patch: (self: Channel, route: string?, payload: any?) -> any,
+	Delete: (self: Channel, route: string?, payload: any?) -> any,
+	Head: (self: Channel, route: string?, payload: any?) -> any,
+	Options: (self: Channel, route: string?, payload: any?) -> any,
+}
+
 export type Src = {
 	Name: string,
 	Role: string,
@@ -190,6 +202,11 @@ export type Src = {
 	Local: (self: Src, domain: string) -> Scope,
 	Network: (self: Src, domain: string) -> Scope,
 	Reg: (self: Src, register: string, owner: any?) -> Register,
+
+	-- Services only, and only to another Service on this side.
+	Channel: (self: Src, service: string) -> Channel,
+	Deploy: (self: Src, worker: string, target: any) -> boolean,
+	Recall: (self: Src, worker: string, target: any) -> boolean,
 	Await: (self: Src, path: string) -> Reaction,
 	OnCleanup: (self: Src, fn: (() -> ()) | any) -> (),
 	Inspect: (self: Src) -> any,
@@ -220,6 +237,16 @@ export type Module = {
 	TagAdded: ((self: any, instance: Instance, tag: string) -> ())?, -- Req "Tag"
 	TagRemoved: ((self: any, instance: Instance, tag: string) -> ())?, -- Req "Tag"
 	Fence: ((self: any, event: string, payload: any, from: any?) -> (boolean, string?))?,
+
+	-- Channel handlers, on a Service. Each takes (route, payload, from), where
+	-- `from` is the calling Service's name.
+	Get: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	Post: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	Put: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	Patch: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	Delete: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	Head: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	Options: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
 
 	-- A double-sided Service: __Serve returns the client half, run BY the client.
 	__Serve: ((self: any) -> Module)?,

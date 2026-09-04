@@ -106,6 +106,47 @@ the named module receive the event. Subscribing to an event routed elsewhere is 
 a mistake, so it warns at bind time naming both modules rather than silently never
 firing.
 
+## Channels
+
+```lua
+local Memory = Src:Channel("MemoryService")
+```
+
+Service to Service, on this side, directly. Synchronous, no Junction entry, no remote.
+Channels are cached per target.
+
+| Verb | Means |
+| --- | --- |
+| `Get` | read, changes nothing |
+| `Post` | submit something new |
+| `Put` | replace it wholesale |
+| `Patch` | change part of it |
+| `Delete` | remove it |
+| `Head` | does it exist, how big: no body |
+| `Options` | what does this Service answer |
+
+Those seven are the whole vocabulary. The point is not ceremony: it is that a Service's
+surface to its peers is a fixed, small set of names with agreed meanings, so a call site
+tells you what it does to the other side without reading the handler.
+
+The other side implements the verbs it supports:
+
+```lua
+function MemoryService:Get(route, payload, from)
+    -- from is the calling Service's name
+end
+```
+
+`Options` is answered by the framework when the Service does not implement it, returning
+the verbs it does. A verb with no handler errors, naming what the target implements.
+
+Errors, all at the call:
+
+- a Controller or Manager opening a channel
+- a channel to a Manager, a Controller, or a name that is not here (lists the Services)
+- a channel to itself
+- a verb the target does not answer
+
 ## Registers
 
 ```lua

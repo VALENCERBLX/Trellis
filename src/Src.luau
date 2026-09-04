@@ -51,6 +51,7 @@ function Src.new(entry, runtime)
 		_runtime = runtime,
 		_junction = runtime.Junction,
 		_scopes = {},
+		_channels = {},
 		_cleanups = {},
 	}, {
 		-- The derived getters are looked up on the registry rather than copied onto
@@ -543,6 +544,142 @@ function Src:Await(path: string)
 	end)
 end
 
+-- =================================================================== Channels ===
+--
+-- Service to Service, directly. Not through the Junction, not over the wire: a plain
+-- call into the other Service on this side, so it is synchronous and returns whatever
+-- the handler returns.
+--
+--   local Memory = Src:Channel("Memory")
+--   local profile = Memory:Get("profile", { UserId = id })
+--   Memory:Patch("profile", { Coins = 5 })
+--
+-- The verbs are the REST methods and nothing else. That is the whole vocabulary, so
+-- a Service's surface to its peers is seven names rather than however many someone
+-- felt like inventing, and reading a call tells you what it does to the other side.
+--
+--   Get      read, changes nothing
+--   Post     submit something new
+--   Put      replace it wholesale
+--   Patch    change part of it
+--   Delete   remove it
+--   Head     does it exist, how big is it: no body
+--   Options  what does this Service answer
+--
+-- The other side implements the verbs it supports, taking (route, payload, from),
+-- where `from` is the calling Service's name:
+--
+--   function MemoryService:Get(route, payload, from)
+--       if route == "profile" then return self.profiles[payload.UserId] end
+--   end
+--
+-- ONLY Services may open a channel, and only to a Service. A Controller or Manager
+-- reaching for one is an error: this is the seam between Services, and widening it to
+-- everything would make it just another way to call anything.
+
+local REST = { "Get", "Post", "Put", "Patch", "Delete", "Head", "Options" }
+
+local Channel = {}
+Channel.__index = Channel
+
+function Channel:_call(verb: string, route: string?, payload: any?)
+	local src = self._src
+	local entry = src._runtime.Modules[self._target]
+
+	if not entry then
+		fail("%s: no Service named %q on the %s", src.Name, self._target, src.Side)
+	end
+
+	local target = entry.Module
+	local handler = target[verb]
+
+	if type(handler) ~= "function" then
+		-- Options is answerable without the Service implementing it: the framework
+		-- already knows which verbs it defines.
+		if verb == "Options" then
+			local supported = {}
+			for _, name in REST do
+				if type(target[name]) == "function" then
+					table.insert(supported, name)
+				end
+			end
+			return supported
+		end
+
+		local supported = {}
+		for _, name in REST do
+			if type(target[name]) == "function" then
+				table.insert(supported, name)
+			end
+		end
+		fail(
+			"%s answers no :%s. it implements: %s",
+			self._target,
+			verb,
+			#supported > 0 and table.concat(supported, ", ") or "(nothing)"
+		)
+	end
+
+	return handler(target, route, payload, src.Name)
+end
+
+for _, verb in REST do
+	Channel[verb] = function(self, route: string?, payload: any?)
+		return self:_call(verb, route, payload)
+	end
+end
+
+-- A channel to another Service on this side. Cached, so repeated calls are free.
+function Src:Channel(service: string)
+	if self.Role ~= "Service" then
+		fail(
+			"%s is a %s, and channels are between Services. Use the Junction to reach "
+				.. "a Service from a %s.",
+			self.Name,
+			self.Role,
+			self.Role
+		)
+	end
+	if service == self.Name then
+		fail("%s opened a channel to itself", self.Name)
+	end
+
+	local cached = self._channels[service]
+	if cached then
+		return cached
+	end
+
+	local entry = self._runtime.Modules[service]
+	if not entry then
+		local services = {}
+		for name, other in self._runtime.Modules do
+			if other.Role == "Service" and name ~= self.Name then
+				table.insert(services, name)
+			end
+		end
+		table.sort(services)
+		fail(
+			"%s opened a channel to %q, which is not on the %s. Services here: %s",
+			self.Name,
+			service,
+			self.Side,
+			#services > 0 and table.concat(services, ", ") or "(none)"
+		)
+	end
+	if entry.Role ~= "Service" then
+		fail(
+			"%s opened a channel to %q, which is a %s. Channels are between Services.",
+			self.Name,
+			service,
+			entry.Role
+		)
+	end
+
+	local channel = setmetatable({ _src = self, _target = service }, Channel)
+	self._channels[service] = channel
+	return channel
+end
+
 -- ==================================================================== Workers ===
 
 -- Send a Worker to a client and start it there. Server only: the module lives in
@@ -631,6 +768,7 @@ function Src:_teardown()
 	end
 	self._cleanups = {}
 	self._scopes = {}
+	self._channels = {}
 end
 
 return Src
