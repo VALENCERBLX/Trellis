@@ -687,32 +687,6 @@ function Bootstrap.Configure(config, opts)
 
 	end
 
-	-- 8b ------------------------------------------- wait for delivered halves
-	-- A Controller's :Start may reach for a Service whose client half is still in
-	-- flight, so the client asks the server what is coming and waits for it. One
-	-- round trip, and only when something actually serves.
-	if side == "Client" and runtime.AwaitDelivery then
-		runtime.AwaitDelivery()
-	end
-
-	-- 9 --------------------------------------------------------------- :Start
-	for _, name in order do
-		local entry = modules[name]
-		if type(entry.Module.Start) == "function" then
-			local ok, err = pcall(entry.Module.Start, entry.Module, entry.Src)
-			if not ok then
-				warn(string.format("[Trellis] %s:Start errored: %s", name, tostring(err)))
-			end
-		end
-	end
-
-	-- 10 ------------------------------------------------- install capabilities
-	-- After :Start, so a module's state exists before its first callback, and
-	-- before the drivers are armed, so nothing fires mid-boot.
-	for _, name in order do
-		installCapabilities(modules[name], tuning[name])
-	end
-
 	-- ------------------------------------------------------------------ Workers
 	-- Deploying is a server verb; adopting is a client one. Both are wired here so
 	-- a Worker gets exactly the treatment a module present at boot got.
@@ -1015,6 +989,32 @@ function Bootstrap.Configure(config, opts)
 				end))
 			end
 		end
+	end
+
+	-- 8b ------------------------------------------- wait for delivered halves
+	-- A Controller's :Start may reach for a Service whose client half is still in
+	-- flight, so the client asks the server what is coming and waits for it. One
+	-- round trip, and only when something actually serves.
+	if side == "Client" and runtime.AwaitDelivery then
+		runtime.AwaitDelivery()
+	end
+
+	-- 9 --------------------------------------------------------------- :Start
+	for _, name in order do
+		local entry = modules[name]
+		if type(entry.Module.Start) == "function" then
+			local ok, err = pcall(entry.Module.Start, entry.Module, entry.Src)
+			if not ok then
+				warn(string.format("[Trellis] %s:Start errored: %s", name, tostring(err)))
+			end
+		end
+	end
+
+	-- 10 ------------------------------------------------- install capabilities
+	-- After :Start, so a module's state exists before its first callback, and
+	-- before the drivers are armed, so nothing fires mid-boot.
+	for _, name in order do
+		installCapabilities(modules[name], tuning[name])
 	end
 
 	-- 10b ------------------------------------------- framework-owned housekeeping
