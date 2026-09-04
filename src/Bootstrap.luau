@@ -30,6 +30,12 @@ local ROLES = {
 	Service = "Any",
 }
 
+-- Workers are cargo, not modules. They live on the server, never replicate at rest,
+-- and are cloned to a client at runtime, where Trellis adopts and boots them. The
+-- server therefore mounts the bin but never starts anything in it.
+local WORKER_BIN = "Worker"
+local WORKER_FOLDER = "__TrellisWorkers"
+
 -- Src mirrors onto the module, so these keys belong to the framework. A module
 -- defining one would silently shadow it, so it is a boot error instead.
 local RESERVED = {
@@ -205,10 +211,52 @@ local function unsendable(value, path: string, found: { string }, depth: number)
 	end
 end
 
+-- ==================================================================== Workers ===
+--
+-- A Worker is a client module that lives on the SERVER until it is needed.
+--
+--   ServerStorage/Modules/Services/TService     the server half, stays put
+--   ServerStorage/Modules/Workers/TService      the client half, deployed on join
+--
+-- Neither replicates at rest. When the server deploys one, Trellis clones it into a
+-- container that replicates to the chosen client, and the client adopts it: requires
+-- it, hands it whatever the server sent through :__Recip, and boots it with the full
+-- lifecycle. Req, fences, timers, troves and :Stop all work, because by then it is an
+-- ordinary module that simply arrived late.
+--
+-- A Worker paired by name with a Service is deployed automatically when a player
+-- joins, carrying that Service's :__Serve() payload. An unpaired Worker waits for
+-- someone to ask:
+--
+--   Src:Deploy("Scout", player, { Target = boss })
+--   Src:Deploy("Scout", "all", payload)
+--   Src:Recall("Scout", player)
+--
+-- Clients who are never deployed to never receive the code and cannot read it.
+
+local function workerContainer(target, opts)
+	local ReplicatedStorage = (opts and opts.ReplicatedStorage) or game:GetService("ReplicatedStorage")
+
+	-- PlayerGui replicates to its own player and nobody else, which is what makes
+	-- per-player delivery private rather than merely per-player addressed.
+	local parent = if target == "all" then ReplicatedStorage else target:FindFirstChild("PlayerGui")
+	if not parent then
+		return nil
+	end
+
+	local folder = parent:FindFirstChild(WORKER_FOLDER)
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = WORKER_FOLDER
+		folder.Parent = parent
+	end
+	return folder
+end
+
 -- Server: run every __Serve once and answer the client's single fetch with all of
 -- them at once, so a boot costs one round trip however many Services serve.
-local function installServe(registry, modules, junction)
-	local payloads, serving = {}, 0
+local function installServe(registry, modules, junction, payloads)
+	local serving = 0
 
 	for name, entry in modules do
 		local module = entry.Module
@@ -248,78 +296,17 @@ local function installServe(registry, modules, junction)
 
 	local remote = junction:Instance("Network.__Serve.Fetch")
 	if remote then
-		remote.OnServerInvoke = function()
-			return payloads
+		-- No argument returns everything, which is the boot-time fetch. A name
+		-- returns one payload, which is what an adopting Worker asks for.
+		remote.OnServerInvoke = function(_player, name)
+			if name == nil then
+				return payloads
+			end
+			return payloads[name]
 		end
 	end
 
 	return serving
-end
-
--- Client: one fetch, then hand each payload to its host before anything starts.
-local function receiveServe(registry, modules, junction)
-	local hosts = {}
-	for name, entry in modules do
-		if entry.Role == "Service" and type(entry.Module.__Recip) == "function" then
-			hosts[name] = entry
-		end
-	end
-
-	if next(hosts) == nil then
-		return 0
-	end
-
-	local remote = junction:Instance("Network.__Serve.Fetch")
-	if not remote then
-		warn("[Trellis] no __Serve channel; __Recip hosts will not receive anything")
-		return 0
-	end
-
-	local ok, payloads = pcall(function()
-		return remote:InvokeServer()
-	end)
-
-	if not ok or type(payloads) ~= "table" then
-		warn(
-			string.format(
-				"[Trellis] could not fetch __Serve payloads (%s). __Recip hosts start "
-					.. "without their served data.",
-				tostring(payloads)
-			)
-		)
-		payloads = {}
-	end
-
-	local received = 0
-	for name, entry in hosts do
-		local served = payloads[name]
-		if served == nil then
-			warn(
-				string.format(
-					"[Trellis] %s defines :__Recip, but no Service named %q on the server "
-						.. "defines :__Serve, so there is nothing to receive.",
-					name,
-					name
-				)
-			)
-			continue
-		end
-
-		-- A host that RETURNS a table becomes that table. Otherwise it keeps its own
-		-- identity. Reassigning a local inside __Recip does nothing: the module table
-		-- was already returned, so the framework is holding the original.
-		local recipOk, replacement = pcall(entry.Module.__Recip, entry.Module, served)
-		if not recipOk then
-			fail("%s:__Recip errored: %s", name, tostring(replacement))
-		end
-		if type(replacement) == "table" then
-			entry.Module = replacement
-			registry:Reconcile("Service", name, replacement)
-		end
-		received += 1
-	end
-
-	return received
 end
 
 -- ============================================================ 7. the boot order ===
@@ -576,13 +563,14 @@ function Bootstrap.Configure(config, opts)
 	local junction = Junction.new(junctionMap, side, { Registry = registry, Clock = opts.Clock })
 	junction:Materialize(opts.IO or Bootstrap.defaultIO(side))
 
-	-- 5b ------------------------------------------------- double-sided Services
+	-- 5b -------------------------------------------------------------- Workers
 	-- Before anything starts, so a __Recip host can rely on its served data being
 	-- there by the time :Start runs.
+	local payloads = {}
+	local deployments = {}
+
 	if side == "Server" then
-		installServe(registry, modules, junction)
-	else
-		receiveServe(registry, modules, junction)
+		installServe(registry, modules, junction, payloads)
 	end
 
 	-- 6 ------------------------------------------------------------- registers
@@ -633,21 +621,20 @@ function Bootstrap.Configure(config, opts)
 		return require(script.Parent.Src).new(...)
 	end
 
-	for _, name in order do
-		local entry = modules[name]
-		entry.Asked = checkModule(entry, side, tuning[name])
+	-- One place a module is made ready, so a Worker arriving an hour after boot gets
+	-- exactly what a module present at boot got.
+	local function inject(entry, setup)
+		entry.Asked = checkModule(entry, side, setup)
 		entry.Src = makeSrc(entry, runtime)
 
 		-- Mirror Src onto the module so it is reachable from every method, not just
 		-- :Start. The module's own fields always win; Src fills the gaps.
 		local existing = getmetatable(entry.Module)
 		if existing and existing.__index then
-			fail("%s already has a metatable with __index; Trellis cannot inject into it", name)
+			fail("%s already has a metatable with __index; Trellis cannot inject into it", entry.Name)
 		end
 		setmetatable(entry.Module, { __index = entry.Src })
 
-		-- Granted BEFORE :Start, because modules use self.Trove and self:Delay
-		-- inside :Start. Heart / Player / Tag / Fence install afterwards.
 		if entry.Asked.Trove then
 			entry.Src:_grantTrove(Trove.new())
 		end
@@ -657,6 +644,34 @@ function Bootstrap.Configure(config, opts)
 		if entry.Asked.Profile or config.Profile then
 			installProfile(entry)
 		end
+	end
+
+	local function installCapabilities(entry, setup)
+		setup = setup or {}
+		if entry.Asked.Heart then
+			entry.Hz = setup.Hz
+			scheduler:Add(entry.Name, entry.Module, setup.Hz)
+		end
+		if entry.Asked.Player then
+			Bootstrap.installPlayer(entry, opts)
+		end
+		if entry.Asked.Tag then
+			Bootstrap.installTag(entry, setup.Tags or {}, opts)
+		end
+		if entry.Asked.Fence then
+			for _, fence in setup.Fences or {} do
+				if not junction:Fence(fence) then
+					fail("%s fences %q, which is not in Junction.Fence", entry.Name, fence)
+				end
+				junction:AddFencer(fence, entry.Module)
+			end
+		end
+	end
+
+	for _, name in order do
+		local entry = modules[name]
+		inject(entry, tuning[name])
+
 	end
 
 	-- 9 --------------------------------------------------------------- :Start
@@ -674,25 +689,193 @@ function Bootstrap.Configure(config, opts)
 	-- After :Start, so a module's state exists before its first callback, and
 	-- before the drivers are armed, so nothing fires mid-boot.
 	for _, name in order do
-		local entry = modules[name]
-		local setup = tuning[name] or {}
+		installCapabilities(modules[name], tuning[name])
+	end
 
-		if entry.Asked.Heart then
-			entry.Hz = setup.Hz
-			scheduler:Add(name, entry.Module, setup.Hz)
+	-- ------------------------------------------------------------------ Workers
+	-- Deploying is a server verb; adopting is a client one. Both are wired here so
+	-- a Worker gets exactly the treatment a module present at boot got.
+
+	local function bootModule(entry, setup)
+		inject(entry, setup)
+		modules[entry.Name] = entry
+		table.insert(order, entry.Name)
+
+		if type(entry.Module.Start) == "function" then
+			local ok, err = pcall(entry.Module.Start, entry.Module, entry.Src)
+			if not ok then
+				warn(string.format("[Trellis] %s:Start errored: %s", entry.Name, tostring(err)))
+			end
 		end
-		if entry.Asked.Player then
-			Bootstrap.installPlayer(entry, opts)
+
+		installCapabilities(entry, setup)
+
+		if type(entry.Module.Ready) == "function" then
+			pcall(entry.Module.Ready, entry.Module)
 		end
-		if entry.Asked.Tag then
-			Bootstrap.installTag(entry, setup.Tags or {}, opts)
+	end
+
+	local function retireModule(name: string)
+		local entry = modules[name]
+		if not entry then
+			return
 		end
-		if entry.Asked.Fence then
-			for _, fence in setup.Fences or {} do
-				if not junction:Fence(fence) then
-					fail("%s fences %q, which is not in Junction.Fence", name, fence)
+		if type(entry.Module.Stop) == "function" then
+			pcall(entry.Module.Stop, entry.Module)
+		end
+		if entry.Src and entry.Src._teardown then
+			entry.Src:_teardown()
+		end
+		scheduler:Remove(name)
+		setmetatable(entry.Module, nil)
+		modules[name] = nil
+		local index = table.find(order, name)
+		if index then
+			table.remove(order, index)
+		end
+	end
+
+	if side == "Server" then
+		runtime.Deploy = function(name: string, target: any, payload: any)
+			local bin = registry._bins[WORKER_BIN]
+			local entry = bin and bin[name]
+			if not entry or not entry.Source then
+				local known = registry._bins[WORKER_BIN] and registry:Names(WORKER_BIN) or {}
+				fail("no Worker named %q. Workers here: %s", name, table.concat(known, ", "))
+			end
+
+			local container = workerContainer(target, opts)
+			if not container then
+				warn(string.format("[Trellis] cannot deploy %s: no PlayerGui for that target", name))
+				return false
+			end
+
+			local existing = container:FindFirstChild(name)
+			if existing then
+				existing:Destroy()
+			end
+
+			payloads[name] = payload
+			local clone = entry.Source:Clone()
+			clone.Name = name
+			clone.Parent = container
+			return true
+		end
+
+		runtime.Recall = function(name: string, target: any)
+			local container = workerContainer(target, opts)
+			local clone = container and container:FindFirstChild(name)
+			if clone then
+				clone:Destroy()
+				return true
+			end
+			return false
+		end
+
+		-- A Worker paired by name with a Service is that Service's client half, so
+		-- it goes out on join without anybody asking.
+		if registry._bins[WORKER_BIN] then
+			local paired = {}
+			for _, name in registry:Names(WORKER_BIN) do
+				if modules[name] and modules[name].Role == "Service" then
+					table.insert(paired, name)
 				end
-				junction:AddFencer(fence, entry.Module)
+			end
+
+			if #paired > 0 then
+				local players = opts.Players or game:GetService("Players")
+				local function serveTo(player)
+					for _, name in paired do
+						runtime.Deploy(name, player, payloads[name])
+					end
+				end
+				table.insert(housekeeping, players.PlayerAdded:Connect(serveTo))
+				for _, player in players:GetPlayers() do
+					task.spawn(serveTo, player)
+				end
+			end
+		end
+	else
+		-- Client: adopt whatever arrives, retire whatever leaves.
+		local function adopt(instance)
+			if not instance:IsA("ModuleScript") or modules[instance.Name] then
+				return
+			end
+
+			-- Through the registry, so a Configure-supplied Loader is honoured here
+			-- exactly as it is for modules found at boot.
+			local ok, module = pcall(function()
+				return registry:Load({
+					Name = instance.Name,
+					Source = instance,
+					Origin = instance:GetFullName(),
+					Loaded = false,
+				})
+			end)
+			if not ok or type(module) ~= "table" then
+				warn(string.format("[Trellis] Worker %s failed to load: %s", instance.Name, tostring(module)))
+				return
+			end
+
+			local entry = { Name = instance.Name, Role = "Worker", Module = module, Source = instance }
+
+			if type(module.__Recip) == "function" then
+				local remote = junction:Instance("Network.__Serve.Fetch")
+				local fetched, payload = pcall(function()
+					return remote:InvokeServer(instance.Name)
+				end)
+				local recipOk, replacement = pcall(module.__Recip, module, fetched and payload or nil)
+				if not recipOk then
+					warn(string.format("[Trellis] %s:__Recip errored: %s", instance.Name, tostring(replacement)))
+					return
+				end
+				if type(replacement) == "table" then
+					entry.Module = replacement
+				end
+			end
+
+			bootModule(entry, tuning[instance.Name])
+		end
+
+		local function watch(folder)
+			if not folder then
+				return
+			end
+			table.insert(housekeeping, folder.ChildAdded:Connect(adopt))
+			table.insert(housekeeping, folder.ChildRemoved:Connect(function(instance)
+				retireModule(instance.Name)
+			end))
+			for _, child in folder:GetChildren() do
+				task.spawn(adopt, child)
+			end
+		end
+
+		runtime.WatchWorkers = function()
+			-- A place with no ReplicatedStorage is a test harness, and a harness with
+			-- no Workers has nothing to watch. Missing services are not an error here.
+			local ok, ReplicatedStorage = pcall(function()
+				return opts.ReplicatedStorage or game:GetService("ReplicatedStorage")
+			end)
+			if not ok or not ReplicatedStorage then
+				return
+			end
+
+			watch(ReplicatedStorage:FindFirstChild(WORKER_FOLDER))
+			table.insert(housekeeping, ReplicatedStorage.ChildAdded:Connect(function(child)
+				if child.Name == WORKER_FOLDER then
+					watch(child)
+				end
+			end))
+
+			local player = runtime.Player
+			local gui = player and player:FindFirstChild("PlayerGui")
+			if gui then
+				watch(gui:FindFirstChild(WORKER_FOLDER))
+				table.insert(housekeeping, gui.ChildAdded:Connect(function(child)
+					if child.Name == WORKER_FOLDER then
+						watch(child)
+					end
+				end))
 			end
 		end
 	end
@@ -796,6 +979,10 @@ function Bootstrap.Configure(config, opts)
 		for _, connection in connections do
 			connection:Disconnect()
 		end
+	end
+
+	if runtime.WatchWorkers then
+		runtime.WatchWorkers()
 	end
 
 	-- The live panel needs the finished handle, so it is built last. F4 toggles it.

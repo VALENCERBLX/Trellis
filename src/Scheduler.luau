@@ -223,6 +223,19 @@ function Scheduler:Step(driver: Driver, dt: number)
 	end
 end
 
+-- A retired module must stop ticking, or a recalled Worker keeps running forever.
+function Scheduler:Remove(name: string)
+	for driver, list in self._tasks do
+		for i = #list, 1, -1 do
+			if list[i].Name == name then
+				table.remove(list, i)
+			end
+		end
+		local _ = driver
+	end
+	self:CancelOwned(name)
+end
+
 function Scheduler:Drivers(): { Driver }
 	local names = {}
 	for driver in self._tasks do

@@ -144,6 +144,11 @@ local function environment()
 				error("harness: no live Roblox services; pass a stub through opts", 0)
 			end,
 		},
+		Instance = {
+			new = function(className: string)
+				return harness.live(className)
+			end,
+		},
 	}
 end
 
@@ -197,6 +202,109 @@ function harness.src(name: string)
 		error(string.format("harness: no src module %q", name), 0)
 	end
 	return found
+end
+
+-- ============================================================== live Instances ===
+-- Fake instances with the parts that replication-shaped code needs: Parent
+-- assignment, ChildAdded/ChildRemoved, Clone and Destroy. `Instance.new` in the
+-- sandbox is backed by these, so a module under test and a test's own world are the
+-- same kind of thing.
+
+local function signal()
+	local handlers = {}
+	return {
+		Connect = function(_, fn)
+			table.insert(handlers, fn)
+			return { Disconnect = function()
+				local i = table.find(handlers, fn)
+				if i then
+					table.remove(handlers, i)
+				end
+			end }
+		end,
+		Fire = function(...)
+			for _, fn in table.clone(handlers) do
+				fn(...)
+			end
+		end,
+	}
+end
+
+harness.signal = signal
+
+local liveValues = {}
+
+function harness.live(className: string, name: string?, value: any?)
+	local added, removed = signal(), signal()
+	local inst = {
+		ClassName = className,
+		Name = name or "Instance",
+		_children = {},
+		_added = added,
+		_removed = removed,
+		ChildAdded = { Connect = function(_, fn)
+			return added.Connect(nil, fn)
+		end },
+		ChildRemoved = { Connect = function(_, fn)
+			return removed.Connect(nil, fn)
+		end },
+	}
+
+	function inst:IsA(c)
+		return self.ClassName == c
+	end
+	function inst:GetChildren()
+		return self._children
+	end
+	function inst:FindFirstChild(n)
+		for _, c in self._children do
+			if c.Name == n then
+				return c
+			end
+		end
+		return nil
+	end
+	function inst:GetFullName()
+		local parts, node = {}, self
+		while node do
+			table.insert(parts, 1, node.Name)
+			node = rawget(node, "_parent")
+		end
+		return table.concat(parts, ".")
+	end
+	function inst:Clone()
+		return harness.live(self.ClassName, self.Name, liveValues[self])
+	end
+	function inst:Destroy()
+		local parent = rawget(self, "_parent")
+		if parent then
+			local i = table.find(parent._children, self)
+			if i then
+				table.remove(parent._children, i)
+			end
+			parent._removed.Fire(self)
+		end
+		rawset(self, "_parent", nil)
+	end
+
+	setmetatable(inst, {
+		__newindex = function(t, key, v)
+			if key == "Parent" then
+				rawset(t, "_parent", v)
+				if v then
+					table.insert(v._children, t)
+					v._added.Fire(t)
+				end
+			else
+				rawset(t, key, v)
+			end
+		end,
+	})
+
+	if value ~= nil then
+		liveValues[inst] = value
+	end
+	return inst
 end
 
 -- =============================================================== fake Instances ===
@@ -258,6 +366,9 @@ end
 -- Pass to Registry or Bootstrap as `Loader`.
 function harness.loader(source)
 	local value = sources[source]
+	if value == nil then
+		value = liveValues[source]
+	end
 	if value == nil then
 		error("harness: nothing mounted for " .. tostring(source and source.Name), 0)
 	end

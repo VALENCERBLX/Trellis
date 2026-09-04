@@ -338,60 +338,70 @@ at any rate.
 
 ---
 
-## Double-sided Services
+## Workers
 
-A Service can serve both sides while its server half stays private.
+A Worker is a client module that lives on the **server** until it is needed.
+
+```
+ServerStorage/Modules/Services/TService     the server half, stays put
+ServerStorage/Modules/Workers/TService      the client half, deployed on join
+```
+
+Neither replicates at rest. Nothing about the Worker exists in the client tree, and a
+client that is never deployed to never receives the code.
 
 ```lua
--- ServerStorage/Modules/Services/CombatService      (never replicates)
-function CombatService:Start() end        -- the server half
+-- Workers/Scout
+local Scout = {}
+Scout.Req = { "Heart", "Trove" }
 
-function CombatService:__Serve()          -- runs on the SERVER, returns DATA
-    return { Combos = self:LoadCombos(), Difficulty = 3 }
+function Scout:__Recip(payload)      -- what the server sent with it
+    self.Target = payload.Target
 end
+
+function Scout:Start(Src)             -- then it is an ordinary module
+    Src:Network("Combat"):Subscribe("Hit", function(p) end)
+end
+
+function Scout:Heartbeat(dt) end
+function Scout:Stop() end
 ```
 
 ```lua
--- ReplicatedStorage/Client/Modules/Services/CombatService
-function CombatService:__Recip(served)    -- runs on the CLIENT
-    self.Combos = served.Combos
-end
-
-function CombatService:Start(Src) end     -- then boots normally
+-- server, from any Manager
+Src:Deploy("Scout", player, { Target = workspace.Boss })   -- one player
+Src:Deploy("Scout", "all", payload)                        -- everyone
+Src:Recall("Scout", player)                                -- :Stop, then remove
 ```
 
-`__Serve` returns data, not code. Returning a function, a thread, or a table carrying a
-metatable is a boot error naming the exact key, because none of those survive the trip.
+The client declares nothing. Trellis watches for arrivals, requires each one, calls
+`__Recip` with the server's payload, and boots it with the full lifecycle: `Req`,
+`Start`, `Ready`, fences, timers, troves. On recall it runs `:Stop`, tears down the
+subscriptions and timers, and forgets the module.
 
-There is no way around that, and it is worth knowing why rather than looking for one.
-Luau has no `string.dump`, a function's source cannot be read at runtime, and
-`loadstring` does not exist on the client. So a function can be neither encoded on the
-way out nor decoded on the way back.
+Delivery is by instance, not by string. A Worker is a real ModuleScript the whole way,
+so it is full Luau at native speed with real type checking, and there is no compiler,
+no source extraction and no build step anywhere in it.
 
-Send which function instead of the function. Every code path lives on the client where
-it has to, and the server decides which one runs:
+**A Worker named after a Service is that Service's client half**, and goes out on join
+carrying the Service's `__Serve()` payload:
 
 ```lua
--- server
-function CombatService:__Serve()
-    return { Behavior = "Aggressive", Difficulty = 3 }
-end
-
--- client, where the code already lives
-local Behaviors = { Aggressive = function() end, Passive = function() end }
-
-function CombatService:__Recip(served)
-    self.Behave = Behaviors[served.Behavior]
+-- Services/TService, on the server
+function TService:Start() end
+function TService:__Serve()
+    return { Difficulty = 3 }        -- data, sent alongside the Worker
 end
 ```
 
-`__Recip` runs before `:Start`, so a host can rely on its data being there by the time
-it starts. Everything else about the host is ordinary: `Req`, fences and `BootOrder` all
-apply. Returning a table from `__Recip` replaces the module with it.
+An unpaired Worker waits until something calls `Src:Deploy`, which is where this gets
+useful: a boss agent for the players in that arena, a tutorial agent for new accounts,
+a debug agent for staff. Code that most clients never see at all.
 
-The payload is computed once at boot and is the same for every player, and one fetch
-covers every serving Service, so a client boot costs one round trip however many there
-are. Sharing a name across the two sides is the one duplicate the registry tolerates.
+The honest limit: a client that **does** receive a Worker can read it, as it can read
+any code it runs. What you gain is that the code is not sitting in `ReplicatedStorage`
+for every client and every idle exploiter to browse, and that delivery is a decision
+rather than a default.
 
 ---
 

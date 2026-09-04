@@ -536,6 +536,35 @@ function Src:Await(path: string)
 	end)
 end
 
+-- ==================================================================== Workers ===
+
+-- Send a Worker to a client and start it there. Server only: the module lives in
+-- ServerStorage and never replicates until this is called, so a client that is never
+-- deployed to never receives the code.
+--
+--   Src:Deploy("Scout", player, { Target = boss })
+--   Src:Deploy("Scout", "all", payload)
+function Src:Deploy(worker: string, target: any, payload: any?): boolean
+	if self.Side ~= "Server" then
+		fail("%s: :Deploy is server-only", self.Name)
+	end
+	if not self._runtime.Deploy then
+		fail("%s: no Workers bin in the hierarchy, so there is nothing to deploy", self.Name)
+	end
+	return self._runtime.Deploy(worker, target, payload)
+end
+
+-- Stop a deployed Worker and remove it. The client runs its :Stop and cleans up.
+function Src:Recall(worker: string, target: any): boolean
+	if self.Side ~= "Server" then
+		fail("%s: :Recall is server-only", self.Name)
+	end
+	if not self._runtime.Recall then
+		return false
+	end
+	return self._runtime.Recall(worker, target)
+end
+
 function Src:OnCleanup(fn)
 	table.insert(self._cleanups, fn)
 end
