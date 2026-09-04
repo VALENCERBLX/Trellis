@@ -86,7 +86,8 @@ buys. Each one is a boot error:
 - a `Schema` naming a type that does not exist
 - a module defining a key the framework injects
 - a `Req` the module has no hook for
-- `BootOrder` naming a module that is not here, or naming one twice
+- `BootOrder` naming a `*Controller` absent on the client, or a `*Manager` absent on
+  the server, or naming anything twice
 - `BootOrder.Config` tuning a capability the module never asked for
 - two modules with the same name, unless they are a `__Serve` / `__Recip` pair
 

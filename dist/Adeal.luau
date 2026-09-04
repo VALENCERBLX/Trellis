@@ -352,17 +352,46 @@ end
 
 -- ============================================================ 7. the boot order ===
 
+-- A Controller only ever exists on the client and a Manager only on the server, so
+-- the suffix says which side owns a name. BootOrder is ONE shared file listing both,
+-- so a name missing from this side is usually the other side's module rather than a
+-- mistake. Only a name that should be here and is not is a typo.
+local function ownerOf(name: string): (string?, string?)
+	if string.sub(name, -10) == "Controller" then
+		return "Controller", "Client"
+	elseif string.sub(name, -7) == "Manager" then
+		return "Manager", "Server"
+	end
+	return nil, nil -- a Service is side-split; the name alone cannot say
+end
+
 -- Order is a list of tiers; a tier is a name or an array of names with no guaranteed
 -- order among them. Anything the map doesn't mention boots after the last tier, so
 -- you only list what actually needs ordering.
-local function resolveOrder(bootOrder, modules, discovered: { string }): { string }
+local function resolveOrder(bootOrder, modules, discovered: { string }, side: string): { string }
 	local resolved, placed = {}, {}
+	local elsewhere = {}
 
 	for _, tier in (bootOrder and bootOrder.Order) or {} do
 		local names = if type(tier) == "table" then tier else { tier }
 		for _, name in names do
 			if not modules[name] then
-				fail("BootOrder lists %q, which is not a module on this side", name)
+				local role, owner = ownerOf(name)
+
+				if owner == side then
+					-- It belongs here by its own suffix, and it is not here.
+					fail(
+						"BootOrder lists %q, which is a %s but was not found on the %s",
+						name,
+						role,
+						side
+					)
+				end
+
+				-- Either the other side owns it, or it is a Service whose half lives
+				-- over there. Both are ordinary in a shared BootOrder.
+				table.insert(elsewhere, name)
+				continue
 			end
 			if placed[name] then
 				fail("BootOrder lists %q twice", name)
@@ -385,6 +414,17 @@ local function resolveOrder(bootOrder, modules, discovered: { string }): { strin
 			string.format(
 				"[Trellis] not in BootOrder, booting last: %s",
 				table.concat(leftovers, ", ")
+			)
+		)
+	end
+
+	-- Worth one line, because a genuinely misspelled Service name lands here too and
+	-- would otherwise vanish without trace.
+	if #elsewhere > 0 then
+		print(
+			string.format(
+				"[Trellis] BootOrder entries for the other side, ignored here: %s",
+				table.concat(elsewhere, ", ")
 			)
 		)
 	end
@@ -574,12 +614,22 @@ function Bootstrap.Configure(config, opts)
 	end
 
 	-- 7 ------------------------------------------------------------------ order
-	local order = resolveOrder(bootOrder, modules, discovered)
+	local order = resolveOrder(bootOrder, modules, discovered, side)
 	local tuning = (bootOrder and bootOrder.Config) or {}
 
+	-- Same rule as Order: Config is shared, so an entry for the other side's module
+	-- is expected. Only one that should be here and is not is a mistake.
 	for name in tuning do
 		if not modules[name] then
-			fail("BootOrder.Config names %q, which is not a module on this side", name)
+			local role, owner = ownerOf(name)
+			if owner == side then
+				fail(
+					"BootOrder.Config names %q, which is a %s but was not found on the %s",
+					name,
+					role,
+					side
+				)
+			end
 		end
 	end
 

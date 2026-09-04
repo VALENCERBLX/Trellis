@@ -325,6 +325,12 @@ index is the priority, so inserting a module means inserting a line rather than
 renumbering anything. Only list what genuinely needs ordering. Everything else boots
 after the last tier, with one warning naming it.
 
+One `BootOrder` covers both sides, so it lists Controllers and Managers together and
+each side sees names it cannot have. The suffix settles it: a `*Controller` is skipped
+on the server, a `*Manager` on the client, and a Service missing here is assumed to be
+the other side's half. A name that belongs on this side and is absent is still an
+error, since that is a real typo.
+
 One scheduler owns one connection per driver for the whole app and staggers phases
 with golden-ratio offsets, so forty modules at `Hz = 10` do not all land on the same
 frame. A throttled `:Heartbeat` receives accumulated dt, so integration stays correct

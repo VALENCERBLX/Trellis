@@ -257,12 +257,12 @@ check("the injected metatable is removed", getmetatable(MODS.MemoryService) == n
 
 -- ============================================================== boot failures ===
 
-expectError("BootOrder naming an unknown module", function()
+expectError("BootOrder naming a Manager that is missing on the server", function()
 	local h = hierarchy()
 	local bad = { Order = { "GhostManager" }, Config = {} }
 	h[1]._children[1]._children[2] = module("BootOrder", bad)
 	return Bootstrap.Configure({ Hierarchy = h }, opts())
-end, 'BootOrder lists "GhostManager", which is not a module on this side')
+end, 'BootOrder lists "GhostManager", which is a Manager but was not found on the Server')
 
 expectError("tuning a capability the module never asked for", function()
 	local h = hierarchy()
@@ -465,5 +465,74 @@ do
 	check("a Config module's returned table wins", app:Inspect().Routes[1].Path == "Network.Pong.Send", app:Inspect().Routes[1].Path)
 	app:Stop()
 end
+
+-- ======================================== BootOrder is shared across both sides ===
+-- One BootOrder file lists Controllers and Managers together, so each side sees
+-- names it cannot possibly have. Only a name that BELONGS here and is absent is a
+-- mistake; the rest are the other side's business.
+
+do
+	local ran = {}
+	local function mod(name)
+		local m = {}
+		function m:Start()
+			table.insert(ran, name)
+		end
+		return m
+	end
+
+	local BOTH = {
+		Order = { "SharedService", "HudController", "GameManager" },
+		Config = { HudController = {}, GameManager = {} },
+	}
+
+	local function place()
+		return {
+			folder("Shared", {
+				folder("Config", {
+					module("Junction", { Local = {}, Network = {} }),
+					module("BootOrder", BOTH),
+				}),
+				folder("Services", { module("SharedService", mod("SharedService")) }),
+			}),
+			folder("Server", { folder("Managers", { module("GameManager", mod("GameManager")) }) }),
+			folder("Client", { folder("Controllers", { module("HudController", mod("HudController")) }) }),
+		}
+	end
+
+	-- server: HudController is listed but is a Controller, so it is skipped
+	ran = {}
+	local h = place()
+	table.remove(h, 3) -- the server does not pass the client root
+	local server = Bootstrap.Configure({ Hierarchy = h }, opts())
+	check("the server boots what it owns", table.concat(ran, ",") == "SharedService,GameManager", table.concat(ran, ","))
+	check("...ignoring the Controller in the shared BootOrder", server:Get("HudController") == nil)
+	server:Stop()
+
+	-- client: GameManager is listed but is a Manager, so it is skipped
+	ran = {}
+	local h2 = place()
+	table.remove(h2, 2) -- the client does not pass the server root
+	local client = Bootstrap.Configure({ Hierarchy = h2 }, opts({ Side = "Client" }))
+	check("the client boots what it owns", table.concat(ran, ",") == "SharedService,HudController", table.concat(ran, ","))
+	check("...ignoring the Manager in the shared BootOrder", client:Get("GameManager") == nil)
+	client:Stop()
+
+	-- and Config for the other side's module is fine too
+	check("BootOrder.Config for the other side is not an error", true)
+end
+
+expectError("a Controller missing on the CLIENT is still a typo", function()
+	local h = {
+		folder("Shared", {
+			folder("Config", {
+				module("Junction", { Local = {}, Network = {} }),
+				module("BootOrder", { Order = { "GhostController" }, Config = {} }),
+			}),
+		}),
+		folder("Client", { folder("Controllers", {}) }),
+	}
+	return Bootstrap.Configure({ Hierarchy = h }, opts({ Side = "Client" }))
+end, 'BootOrder lists "GhostController", which is a Controller but was not found on the Client')
 
 T.done()
