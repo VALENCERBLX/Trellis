@@ -52,19 +52,26 @@ function Src.new(entry, runtime)
 		_junction = runtime.Junction,
 		_scopes = {},
 		_cleanups = {},
-	}, Src)
+	}, {
+		-- The derived getters are looked up on the registry rather than copied onto
+		-- Src, because a bin can appear AFTER a Src exists. An adopted Worker creates
+		-- the Worker bin at runtime, and every Src built before it still has to see
+		-- :GetWorker.
+		__index = function(t, key)
+			local own = Src[key]
+			if own ~= nil then
+				return own
+			end
 
-	-- The derived getters, forwarded from the registry. They close over the registry
-	-- and ignore `self`, so forwarding is a plain assignment -- and the surface is
-	-- whatever bins this side's hierarchy produced.
-	local registry = runtime.Registry
-	if registry then
-		for _, bin in registry:Bins() do
-			self["Get" .. bin] = registry["Get" .. bin]
-			self["Has" .. bin] = registry["Has" .. bin]
-			self["List" .. bin] = registry["List" .. bin]
-		end
-	end
+			local registry = rawget(t, "_runtime").Registry
+			local generated = registry and registry[key]
+			if type(generated) == "function" then
+				return generated
+			end
+
+			return nil
+		end,
+	})
 
 	return self
 end
