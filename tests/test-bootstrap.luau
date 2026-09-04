@@ -356,12 +356,16 @@ do
 
 	local trace = {}
 
-	-- the server half, exactly the shape a game would write
+	-- the server half: stays on the server, always
 	local serverHalf = {}
 	function serverHalf:Start()
 		table.insert(trace, "server:Start")
 	end
-	function serverHalf:__Serve()
+
+	-- the Worker: the ONLY thing delivered. __Serve lives here, and runs on the
+	-- client from the delivered copy.
+	local workerHalf = {}
+	function workerHalf:__Serve()
 		table.insert(trace, "__Serve")
 		local Client = {}
 		function Client:Test()
@@ -391,6 +395,7 @@ do
 	}
 
 	local serviceModule = live("ModuleScript", "TService", serverHalf)
+	local workerModule = live("ModuleScript", "TService", workerHalf)
 	local io = { New = function()
 		return {}
 	end, Wait = function()
@@ -409,14 +414,19 @@ do
 	local serverServices = folder("Services", {})
 	table.insert(serverServices._children, serviceModule)
 
+	local serverWorkers = folder("Workers", {})
+	table.insert(serverWorkers._children, workerModule)
+
 	local server = Bootstrap.Configure({
-		Hierarchy = { shared(), folder("Server", { serverServices }) },
+		Hierarchy = { shared(), folder("Server", { serverServices, serverWorkers }) },
 	}, opts({ IO = io, Players = players, ReplicatedStorage = RS }))
 
 	check("the server did NOT run __Serve", table.concat(trace, ",") == "server:Start", table.concat(trace, ","))
 
 	local delivered = gui:FindFirstChild("__TrellisWorkers")
-	check("the Service module was delivered to the player", delivered ~= nil and delivered:FindFirstChild("TService") ~= nil)
+	local sent = delivered and delivered:FindFirstChild("TService")
+	check("the WORKER was delivered", sent ~= nil)
+	check("...and it is the Worker, never the Service module", sent ~= nil and H.valueOf(sent) == workerHalf)
 
 	-- the client, with its own half of the same name
 	local client = Bootstrap.Configure({
@@ -449,7 +459,9 @@ do
 	local started = false
 	local serverHalf = {}
 	function serverHalf:Start() end
-	function serverHalf:__Serve()
+
+	local workerHalf = {}
+	function workerHalf:__Serve()
 		local Client = {}
 		function Client:Start()
 			started = true
@@ -480,6 +492,8 @@ do
 
 	local svcFolder = folder("Services", {})
 	table.insert(svcFolder._children, live("ModuleScript", "Solo", serverHalf))
+	local wkFolder = folder("Workers", {})
+	table.insert(wkFolder._children, live("ModuleScript", "Solo", workerHalf))
 
 	local function shared()
 		return folder("Shared", {
@@ -491,7 +505,7 @@ do
 	end
 
 	local server = Bootstrap.Configure({
-		Hierarchy = { shared(), folder("Server", { svcFolder }) },
+		Hierarchy = { shared(), folder("Server", { svcFolder, wkFolder }) },
 	}, opts({ IO = io, Players = players, ReplicatedStorage = RS }))
 
 	local client = Bootstrap.Configure({
@@ -505,6 +519,45 @@ do
 	server:Stop()
 	client:Stop()
 end
+
+expectError("a serving Service with no Worker is a boot error, not a leak", function()
+	local half = {}
+	function half:Start() end
+	function half:__Serve()
+		return {}
+	end
+
+	return Bootstrap.Configure({
+		Hierarchy = {
+			folder("Shared", {
+				folder("Config", {
+					module("Junction", BARE_MAP),
+					module("BootOrder", { Order = {}, Config = {} }),
+				}),
+			}),
+			folder("Server", { folder("Services", { module("Leaky", half) }) }),
+		},
+	}, opts())
+end, 'Leaky declares :__Serve but there is no Worker named "Leaky"')
+
+expectError("Deploy never falls back to a Service module", function()
+	local half = {}
+	function half:Start() end
+
+	local app = Bootstrap.Configure({
+		Hierarchy = {
+			folder("Shared", {
+				folder("Config", {
+					module("Junction", BARE_MAP),
+					module("BootOrder", { Order = {}, Config = {} }),
+				}),
+			}),
+			folder("Server", { folder("Services", { module("Private", half) }) }),
+		},
+	}, opts())
+
+	return app.Src:Deploy("Private", { Name = "Ada", UserId = 9 })
+end, 'no Worker named "Private"')
 
 -- ======================================== BootOrder is shared across both sides ===
 -- One BootOrder file lists Controllers and Managers together, so each side sees

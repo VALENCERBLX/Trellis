@@ -363,6 +363,11 @@ function harness.module(name: string, value: any)
 	return m
 end
 
+-- What a live instance carries, for asserting on WHICH module was delivered.
+function harness.valueOf(instance)
+	return liveValues[instance]
+end
+
 -- Pass to Registry or Bootstrap as `Loader`.
 function harness.loader(source)
 	local value = sources[source]

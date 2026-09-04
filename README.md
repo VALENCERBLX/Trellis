@@ -340,19 +340,31 @@ at any rate.
 
 ## Double-sided Services
 
-A Service can have a client half without either half living in a replicated container.
+A Service can have a client half, and **no part of the server module ever reaches a
+client**. Not its `:Start`, not a constant, not a comment.
+
+```
+ServerStorage/Modules/Services/TService     the server half, never delivered
+ServerStorage/Modules/Workers/TService      the client half, the only thing sent
+Client/Modules/Services/TService            optional: receives it via __Recip
+```
 
 ```lua
--- ServerStorage/Modules/Services/TService        never replicates at rest
-local RunService = game:GetService("RunService")
-
+-- Services/TService, stays on the server
 local TService = {}
 
 function TService:Start()
-    warn("server half")
+    warn("Is Server? =>", RunService:IsServer())
 end
 
-function TService:__Serve()             -- returns the CLIENT half
+return TService
+```
+
+```lua
+-- Workers/TService, delivered on join
+local Worker = {}
+
+function Worker:__Serve()               -- runs on the CLIENT, from the delivered copy
     local Client = {}
     function Client:Test()
         return "Is Client? " .. tostring(RunService:IsClient())
@@ -360,43 +372,37 @@ function TService:__Serve()             -- returns the CLIENT half
     return Client
 end
 
-return TService
+return Worker
 ```
 
 ```lua
--- Client/Modules/Services/TService
-local TService = {}
-
-function TService:__Recip(served)       -- receives what __Serve built
-    self.Served = served
-end
-
-return TService
+-- Client/Modules/Services/TService, optional
+function TService:__Recip(served) end   -- gets what __Serve built
 ```
 
 ```lua
 -- any Controller
-local TService = Src:GetService("TService")
-warn(TService:Test())                   --> Is Client? true
+Src:GetService("TService"):Test()       --> Is Client? true
 ```
 
-**`__Serve` runs on the client, not the server.** On join, Trellis clones the Service's
-own ModuleScript into that player's `PlayerGui`, which replicates to them and nobody
-else. The client requires the copy and calls `__Serve` there, so the table it returns
-is built on that machine and its functions are real ones rather than something that had
-to survive a remote.
+On join, Trellis clones the **Worker** into that player's `PlayerGui`, which replicates
+to them and nobody else. The client requires it and calls `__Serve` there, so the table
+it returns is built on that machine and its functions are real rather than something
+that had to survive a remote. The client half receives it through `__Recip`, and
+anything `__Recip` leaves untouched is copied across.
 
-The client half then receives it through `__Recip`, and anything `__Recip` leaves
-untouched is copied across, so the served methods are simply there. The result is an
-ordinary Service: `Src:GetService("TService")` reaches it, `Req` and fences apply, and
-`:Stop` runs on teardown.
+The result is an ordinary Service. `Src:GetService(name)` reaches it, `Req` and fences
+apply, `:Stop` runs on teardown. With no client half at all, what `__Serve` returns is
+the Service.
 
-With no client half at all, what `__Serve` returns *is* the Service.
+**Only Workers are ever delivered.** A Service declaring `__Serve` without a Worker is a
+boot error, and `Src:Deploy` will not fall back to a Service module either. There is no
+path, accidental or otherwise, that sends server code to a client. That restriction is
+the entire point: a glimpse of the server is a glimpse too many.
 
 ### Deploying by hand
 
-The same machinery is available directly, for code that should reach only some clients.
-A `Workers` bin holds modules that are never Services on the server:
+The same machinery, for code that should reach only some clients:
 
 ```lua
 Src:Deploy("Scout", player)     -- one player, via PlayerGui
@@ -405,11 +411,11 @@ Src:Recall("Scout", player)     -- :Stop, then remove
 ```
 
 A boss agent for the players in that arena, a tutorial agent for new accounts, a debug
-agent for staff. Clients who never qualify never receive the module and cannot read it.
+agent for staff. Clients who never qualify never receive the module.
 
-The honest limit: a client that **does** receive one can read it, as it can read any
-code it runs. What you gain is that the code is not sitting in `ReplicatedStorage` for
-every client to browse, and that delivery is a decision rather than a default.
+A client that **does** receive a Worker can read that Worker, as it can read any code it
+runs. So a Worker holds client logic and nothing else. Secrets belong in a **Manager**,
+which never replicates under any circumstances.
 
 ---
 

@@ -207,17 +207,40 @@ local function workerContainer(target, opts)
 	return folder
 end
 
--- Server: a Service with :__Serve has a client half, and the way that half reaches a
--- client is the Service's own ModuleScript, cloned over on join. __Serve is NOT run
--- here. It runs on the client, from the delivered copy, so the table it returns is
--- built there and its functions are real.
-local function servingServices(modules)
+-- A Service's client half is the Worker of the same name, and ONLY that. The server
+-- Service module is never delivered, so no part of it can ever reach a client: not
+-- its :Start, not a constant, not a comment. That is the whole reason Workers exist,
+-- and a fallback that ships the Service module "just this once" would quietly undo it.
+--
+-- A Service that declares :__Serve without a Worker is therefore a boot error. The
+-- alternative is leaking server code to every player, which is not a thing to decide
+-- by accident.
+local function servingServices(registry, modules)
+	local workerBin = registry._bins[WORKER_BIN]
 	local serving = {}
+
 	for name, entry in modules do
-		if entry.Role == "Service" and type(entry.Module.__Serve) == "function" then
+		if entry.Role ~= "Service" then
+			continue
+		end
+
+		local worker = workerBin and workerBin[name]
+		if worker then
 			table.insert(serving, name)
+		elseif type(entry.Module.__Serve) == "function" then
+			fail(
+				"%s declares :__Serve but there is no Worker named %q.\n"
+					.. "    A client half is delivered as ServerStorage/Modules/Workers/%s, and\n"
+					.. "    only that file is sent. The Service module itself is never delivered,\n"
+					.. "    so nothing in it can reach a client.\n"
+					.. "    Move :__Serve, or the client half it returns, into the Worker.",
+				name,
+				name,
+				name
+			)
 		end
 	end
+
 	table.sort(serving)
 	return serving
 end
@@ -628,27 +651,22 @@ function Bootstrap.Configure(config, opts)
 	end
 
 	if side == "Server" then
-		-- A Worker is any ModuleScript on the server that a client is meant to run.
-		-- Deploy finds it in the Workers bin, or falls back to the Service of that
-		-- name, since a serving Service delivers its own module.
+		-- Only ever from the Workers bin. There is deliberately no fallback to the
+		-- Service of that name: delivering a server module is the one thing this is
+		-- built to prevent.
 		runtime.Deploy = function(name: string, target: any)
 			local workerBin = registry._bins[WORKER_BIN]
 			local entry = workerBin and workerBin[name]
-			if not entry then
-				local serviceBin = registry._bins.Service
-				entry = serviceBin and serviceBin[name]
-			end
 
 			if not entry or not entry.Source then
-				local known = {}
-				for _, bin in { WORKER_BIN, "Service" } do
-					if registry._bins[bin] then
-						for _, n in registry:Names(bin) do
-							table.insert(known, n)
-						end
-					end
-				end
-				fail("nothing named %q to deploy. available: %s", name, table.concat(known, ", "))
+				local known = workerBin and registry:Names(WORKER_BIN) or {}
+				fail(
+					"no Worker named %q. Workers here: %s\n"
+						.. "    Only Workers are ever sent to a client. A Service module stays on\n"
+						.. "    the server, always.",
+					name,
+					#known > 0 and table.concat(known, ", ") or "(none)"
+				)
 			end
 
 			local container = workerContainer(target, opts)
@@ -680,7 +698,7 @@ function Bootstrap.Configure(config, opts)
 
 		-- Every Service with :__Serve sends its own module over on join. The client
 		-- runs __Serve from that copy, so the half it returns is built there.
-		local serving = servingServices(modules)
+		local serving = servingServices(registry, modules)
 
 		-- The client asks what to expect, so it can wait for delivery before it
 		-- starts anything. Without this a Controller's :Start would reach for a
