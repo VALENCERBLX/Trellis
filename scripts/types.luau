@@ -142,7 +142,7 @@ local lines = {
 	"--     local Generated = require(path.to.this.file)",
 	"--     function CombatManager:Start(Src: Generated.Src) end",
 	"",
-	"local Trellis = require(script.Parent.Parent.Packages.Trellis)",
+	"local Trellis = require(game.ReplicatedStorage.Shared.Modules.Packages.Trellis)",
 	"",
 }
 

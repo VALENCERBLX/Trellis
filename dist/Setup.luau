@@ -235,8 +235,10 @@ local SERVER_INIT = [==[
 -- The single server entry point.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Trellis = require(ReplicatedStorage.Trellis)
-local Bootstrap = require(ReplicatedStorage.Shared.Modules.Utilities.Bootstrap)
+
+local Modules = ReplicatedStorage.Shared.Modules
+local Trellis = require(Modules.Packages.Trellis)
+local Bootstrap = require(Modules.Utilities.Bootstrap)
 
 local app = Trellis.Configure(Bootstrap.Server())
 
@@ -249,17 +251,15 @@ local CLIENT_INIT = [==[
 -- The single client entry point.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Trellis = require(ReplicatedStorage:WaitForChild("Trellis"))
-local Bootstrap = require(ReplicatedStorage.Shared.Modules.Utilities.Bootstrap)
+
+local Modules = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules")
+local Trellis = require(Modules:WaitForChild("Packages"):WaitForChild("Trellis"))
+local Bootstrap = require(Modules:WaitForChild("Utilities"):WaitForChild("Bootstrap"))
 
 Trellis.Configure(Bootstrap.Client())
 ]==]
 
 -- ===================================================================== layout ===
-
-if not ReplicatedStorage:FindFirstChild("Trellis") then
-	warn("[Setup] ReplicatedStorage.Trellis is missing. Run dist/Adeal.luau first.")
-end
 
 -- Shared: content trees plus the module tree
 local Shared = folder(ReplicatedStorage, "Shared")
@@ -275,9 +275,27 @@ local template = folder(Classes, "__NameOfClassFolder__")
 folder(template, "__NameOfClass__")
 
 local SharedModules = folder(Shared, "Modules")
-folder(SharedModules, "Packages")
+local SharedPackages = folder(SharedModules, "Packages")
 folder(SharedModules, "Services")
 local SharedUtilities = folder(SharedModules, "Utilities")
+
+-- Trellis is a package, so it belongs with the others. Earlier versions installed it
+-- at the root of ReplicatedStorage; move rather than replace, so nothing is lost if
+-- that copy was ever edited.
+local stray = ReplicatedStorage:FindFirstChild("Trellis")
+if stray then
+	if SharedPackages:FindFirstChild("Trellis") then
+		stray:Destroy()
+		table.insert(made, "moved ReplicatedStorage.Trellis (a newer copy was already in Packages)")
+	else
+		stray.Parent = SharedPackages
+		table.insert(made, "moved ReplicatedStorage.Trellis -> " .. stray:GetFullName())
+	end
+end
+
+if not SharedPackages:FindFirstChild("Trellis") then
+	warn("[Setup] Trellis is not installed. Run dist/Adeal.luau first.")
+end
 
 -- Client: replicated, but only the client Bootstrap passes it
 local Client = folder(ReplicatedStorage, "Client")
@@ -330,6 +348,7 @@ print([[
 
 [Setup] done. Press Play: the boot should be silent, since nothing is declared yet.
 
+  Trellis    Shared/Modules/Packages/Trellis              the framework
   Junction   Shared/Modules/Utilities/Config/Junction     every event
   BootOrder  Shared/Modules/Utilities/Config/BootOrder    when modules start
   Registers  Shared/Modules/Utilities/Config/Registers    replicating caches

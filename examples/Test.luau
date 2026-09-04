@@ -2,7 +2,7 @@
 -- Example: testing YOUR modules with no Roblox instances and a clock you advance.
 -- Runs under Lune, so this is a real test rather than a play-through.
 
-local Trellis = require(game.ReplicatedStorage.Packages.Trellis)
+local Trellis = require(game.ReplicatedStorage.Shared.Modules.Packages.Trellis)
 local Config = require(game.ReplicatedStorage.Shared.Modules.Config)
 local Modules = require(script.Parent.Modules)
 

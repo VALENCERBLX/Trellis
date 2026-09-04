@@ -27,7 +27,7 @@ surface is **derived from your hierarchy** instead of hand-registered, and anyth
 with a runtime cost is **opt-in** rather than injected into everything.
 
 ```lua
-local Trellis = require(ReplicatedStorage.Packages.Trellis)
+local Trellis = require(ReplicatedStorage.Shared.Modules.Packages.Trellis)
 
 local app = Trellis.Configure({
     Hierarchy = {

@@ -39,6 +39,15 @@ function Inst:GetChildren()
 	return self._children
 end
 
+function Inst:GetFullName()
+	local parts, node = {}, self
+	while node do
+		table.insert(parts, 1, node.Name)
+		node = rawget(node, "_parent")
+	end
+	return table.concat(parts, ".")
+end
+
 local function newInstance(className)
 	local inst = setmetatable({
 		ClassName = className,
@@ -64,6 +73,7 @@ local function newInstance(className)
 end
 
 local ReplicatedStorage = setmetatable({ ClassName = "ReplicatedStorage", Name = "ReplicatedStorage", _children = {} }, { __index = Inst })
+
 
 local printed = {}
 
@@ -105,9 +115,19 @@ end
 
 run()
 
-local package = ReplicatedStorage:FindFirstChild("Trellis")
+local function at(root, path)
+	local node = root
+	for segment in string.gmatch(path, "[^%.]+") do
+		node = node and node:FindFirstChild(segment)
+	end
+	return node
+end
+
+local package = at(ReplicatedStorage, "Shared.Modules.Packages.Trellis")
 check("Adeal parses and runs", package ~= nil)
-check("it installs at ReplicatedStorage.Trellis", package and package.ClassName == "ModuleScript")
+check("it installs with the other packages", package and package.ClassName == "ModuleScript")
+check("...creating the path if it is missing", at(ReplicatedStorage, "Shared.Modules.Packages") ~= nil)
+check("...and not at the old root location", ReplicatedStorage:FindFirstChild("Trellis") == nil)
 
 -- every src module must be present, with its source intact
 local expected = {}
@@ -137,17 +157,33 @@ check("the root module is init.luau", package.Source == fs.readFile("../src/init
 -- that something: if it fails, run `lune run scripts/build-dist`.
 check("dist is not stale (rerun scripts/build-dist if this fails)", #mismatched == 0 and #package:GetChildren() == count)
 
-check("it reports what it did", string.find(printed[1] or "", "installed ReplicatedStorage.Trellis", 1, true) ~= nil, printed[1])
+check("it reports where it landed", string.find(printed[1] or "", "ReplicatedStorage.Shared.Modules.Packages.Trellis", 1, true) ~= nil, printed[1])
 
 -- rerunning replaces rather than duplicating
+-- a place upgraded from a version that installed at the root
+local legacy = newInstance("ModuleScript")
+legacy.Name = "Trellis"
+legacy.Parent = ReplicatedStorage
+
 run()
+
+local Packages = at(ReplicatedStorage, "Shared.Modules.Packages")
 local after = 0
-for _, child in ReplicatedStorage._children do
+for _, child in Packages._children do
 	if child.Name == "Trellis" and not child.Destroyed then
 		after += 1
 	end
 end
 T.equal("rerunning leaves exactly one package", after, 1)
+check("...and clears a copy left at the old location", ReplicatedStorage:FindFirstChild("Trellis") == nil)
+check("...saying so", (function()
+	for _, line in printed do
+		if string.find(line, "removed the old copy", 1, true) then
+			return true
+		end
+	end
+	return false
+end)(), table.concat(printed, " | "))
 check("...and says it replaced", string.find(printed[1] or "", "replaced", 1, true) ~= nil, printed[1])
 
 -- ============================================================ dist/Setup.luau ===
@@ -181,19 +217,7 @@ do
 	local function makeInstance(className)
 		local inst
 		inst = setmetatable({ ClassName = className, Name = "Instance", _children = {} }, {
-			__index = function(t, k)
-				if k == "GetFullName" then
-					return function(self)
-						local parts, node = {}, self
-						while node do
-							table.insert(parts, 1, node.Name)
-							node = rawget(node, "_parent")
-						end
-						return table.concat(parts, ".")
-					end
-				end
-				return Inst[k]
-			end,
+			__index = Inst,
 			__newindex = function(t, key, value)
 				if key == "Parent" then
 					rawset(t, "_parent", value)
@@ -242,16 +266,18 @@ do
 
 	runSetup()
 
-	local function at(path)
+	local function at2(path)
 		local node = roots[string.match(path, "^[^%.]+")]
 		for segment in string.gmatch(string.gsub(path, "^[^%.]+%.?", ""), "[^%.]+") do
 			node = node and node:FindFirstChild(segment)
 		end
 		return node
 	end
+	local at = at2
 
 	check("Setup.luau parses and runs", #out > 0)
 	check("it warns when the package is missing", #warns == 1 and string.find(warns[1], "Run dist/Adeal.luau first", 1, true) ~= nil, warns[1])
+	check("Packages is part of the layout", at2("ReplicatedStorage.Shared.Modules.Packages") ~= nil)
 
 	check("Shared module folders", at("ReplicatedStorage.Shared.Modules.Packages") ~= nil and at("ReplicatedStorage.Shared.Modules.Services") ~= nil)
 	check("content trees", at("ReplicatedStorage.Shared.Assets.Interface") ~= nil and at("ReplicatedStorage.Shared.Classes.__NameOfClassFolder__.__NameOfClass__") ~= nil)

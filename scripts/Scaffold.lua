@@ -9,16 +9,23 @@
 -- the smoke test the Lune suite cannot be: real remotes, real replication, real
 -- RunService, a real player.
 --
--- Requires ReplicatedStorage.Packages.Trellis to exist already (rojo build, or drag
+-- Requires ReplicatedStorage.Shared.Modules.Packages.Trellis to exist already (rojo build, or drag
 -- the model in). Re-running replaces what it made and leaves everything else alone.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local StarterPlayer = game:GetService("StarterPlayer")
 
-local Packages = ReplicatedStorage:FindFirstChild("Packages")
-if not (Packages and Packages:FindFirstChild("Trellis")) then
-	error("[Scaffold] put Trellis in ReplicatedStorage.Packages first")
+local function reach(root, path)
+	local node = root
+	for segment in string.gmatch(path, "[^%.]+") do
+		node = node and node:FindFirstChild(segment)
+	end
+	return node
+end
+
+if not reach(ReplicatedStorage, "Shared.Modules.Packages.Trellis") then
+	error("[Scaffold] install Trellis first: run dist/Adeal.luau")
 end
 
 -- ================================================================== helpers ===
@@ -306,7 +313,7 @@ function SmokeController:Ready()
 	end)
 
 	task.delay(4, function()
-		local Trellis = require(game.ReplicatedStorage.Packages.Trellis)
+		local Trellis = require(game.ReplicatedStorage.Shared.Modules.Packages.Trellis)
 		print("\n" .. Trellis.App():Report())
 	end)
 end
@@ -319,7 +326,7 @@ return SmokeController
 script_(ServerScriptService, "ServerBootstrap", "Script", [==[
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
-local Trellis = require(ReplicatedStorage.Packages.Trellis)
+local Trellis = require(ReplicatedStorage.Shared.Modules.Packages.Trellis)
 
 print("\n=== Trellis smoke test ===")
 
@@ -340,7 +347,7 @@ end)
 script_(StarterScripts, "ClientBootstrap", "LocalScript", [==[
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
-local Trellis = require(ReplicatedStorage.Packages.Trellis)
+local Trellis = require(ReplicatedStorage.Shared.Modules.Packages.Trellis)
 
 Trellis.Configure({
 	Hierarchy = {

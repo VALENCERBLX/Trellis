@@ -28,7 +28,7 @@ local ROOT = [[
 --
 -- One call per side, and nothing else in the game touches the framework:
 --
---   local Trellis = require(ReplicatedStorage.Packages.Trellis)
+--   local Trellis = require(ReplicatedStorage.Shared.Modules.Packages.Trellis)
 --
 --   local app = Trellis.Configure({
 --       Hierarchy = {
@@ -4989,7 +4989,31 @@ return {}
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local previous = ReplicatedStorage:FindFirstChild("Trellis")
+local function folder(parent, name)
+	local existing = parent:FindFirstChild(name)
+	if existing then
+		return existing
+	end
+	local created = Instance.new("Folder")
+	created.Name = name
+	created.Parent = parent
+	return created
+end
+
+-- Trellis is a package, so it lives with the others. The path is created if this is
+-- a fresh place; Setup fills in the rest of the layout afterwards.
+local Packages = folder(folder(folder(ReplicatedStorage, "Shared"), "Modules"), "Packages")
+
+-- Earlier versions installed at ReplicatedStorage.Trellis. Clear that too, so a
+-- place upgraded from one of those does not end up with two copies and a require
+-- pointing at whichever it finds first.
+local stray = ReplicatedStorage:FindFirstChild("Trellis")
+local migrated = stray ~= nil
+if stray then
+	stray:Destroy()
+end
+
+local previous = Packages:FindFirstChild("Trellis")
 local replacing = previous ~= nil
 if previous then
 	previous:Destroy()
@@ -5006,13 +5030,17 @@ for _, entry in MODULES do
 	child.Parent = package
 end
 
-package.Parent = ReplicatedStorage
+package.Parent = Packages
 
 print(string.format(
-	"[Adeal] %s ReplicatedStorage.Trellis %s (%d modules)",
+	"[Adeal] %s %s %s (%d modules)",
 	replacing and "replaced" or "installed",
+	package:GetFullName(),
 	VERSION,
 	#MODULES
 ))
+if migrated then
+	print("[Adeal] removed the old copy at ReplicatedStorage.Trellis")
+end
 print("[Adeal] next: run dist/Setup.luau to lay out a project around it")
 

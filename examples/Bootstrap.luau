@@ -6,7 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Players = game:GetService("Players")
 
-local Trellis = require(ReplicatedStorage.Packages.Trellis)
+local Trellis = require(ReplicatedStorage.Shared.Modules.Packages.Trellis)
 
 -- ============================== ServerScriptService/ServerBootstrap (Script) ===
 
@@ -53,7 +53,7 @@ Trellis.Configure({
 --[[ ============================ the recommended layout ======================
 
 ReplicatedStorage/
-  Packages/Trellis                the framework
+  Shared/Modules/Packages/Trellis   the framework
   Shared/Modules/
     Packages/                     shared third-party   -> :GetPackage
     Utility/                      shared helpers       -> :GetUtility

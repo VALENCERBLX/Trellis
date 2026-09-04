@@ -9,7 +9,7 @@
 --
 -- One call per side, and nothing else in the game touches the framework:
 --
---   local Trellis = require(ReplicatedStorage.Packages.Trellis)
+--   local Trellis = require(ReplicatedStorage.Shared.Modules.Packages.Trellis)
 --
 --   local app = Trellis.Configure({
 --       Hierarchy = {
