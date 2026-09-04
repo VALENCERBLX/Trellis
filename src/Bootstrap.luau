@@ -802,8 +802,8 @@ function Bootstrap.Configure(config, opts)
 			entry.Src:_teardown()
 		end
 		scheduler:Remove(name)
-		if entry.Role == "Worker" then
-			registry:Unmount(WORKER_BIN, name)
+		if entry.Role == "Service" and entry.Source ~= nil then
+			registry:Unmount("Service", name)
 		end
 		setmetatable(entry.Module, nil)
 		modules[name] = nil
@@ -876,7 +876,15 @@ function Bootstrap.Configure(config, opts)
 	else
 		-- Client: adopt whatever arrives, retire whatever leaves.
 		local function adopt(instance)
-			if not instance:IsA("ModuleScript") or modules[instance.Name] then
+			if not instance:IsA("ModuleScript") then
+				return
+			end
+
+			local name = instance.Name
+			local host = modules[name]
+
+			-- Already adopted, and not a client half waiting for its source.
+			if host and type(host.Module.__Recip) ~= "function" then
 				return
 			end
 
@@ -895,16 +903,36 @@ function Bootstrap.Configure(config, opts)
 				return
 			end
 
-			local entry = { Name = instance.Name, Role = "Worker", Module = module, Source = instance }
+			-- The Worker carries the SOURCE. Where a client half of the same name
+			-- already exists and defines :__Recip, that half is the Service and this
+			-- is what it was waiting for: hand it over and leave it as it is.
+			if host then
+				local ok2, replacement = pcall(host.Module.__Recip, host.Module, module)
+				if not ok2 then
+					warn(string.format("[Trellis] %s:__Recip errored: %s", name, tostring(replacement)))
+					return
+				end
+				if type(replacement) == "table" then
+					setmetatable(host.Module, nil)
+					host.Module = replacement
+					setmetatable(replacement, { __index = host.Src })
+					registry:Mount("Service", name, replacement)
+				end
+				return
+			end
+
+			-- No client half, so the Worker IS the Service. It still gets whatever
+			-- __Serve returned, then boots like anything else.
+			local entry = { Name = name, Role = "Service", Module = module, Source = instance }
 
 			if type(module.__Recip) == "function" then
 				local remote = junction:Instance("Network.__Serve.Fetch")
 				local fetched, payload = pcall(function()
-					return remote:InvokeServer(instance.Name)
+					return remote:InvokeServer(name)
 				end)
 				local recipOk, replacement = pcall(module.__Recip, module, fetched and payload or nil)
 				if not recipOk then
-					warn(string.format("[Trellis] %s:__Recip errored: %s", instance.Name, tostring(replacement)))
+					warn(string.format("[Trellis] %s:__Recip errored: %s", name, tostring(replacement)))
 					return
 				end
 				if type(replacement) == "table" then
@@ -912,8 +940,9 @@ function Bootstrap.Configure(config, opts)
 				end
 			end
 
-			registry:Mount(WORKER_BIN, instance.Name, entry.Module)
-			bootModule(entry, tuning[instance.Name])
+			-- Mounted as a SERVICE, so Src:GetService(name) reaches it like any other.
+			registry:Mount("Service", name, entry.Module)
+			bootModule(entry, tuning[name])
 		end
 
 		local function watch(folder)

@@ -445,6 +445,7 @@ do
 	}))
 
 	check("the client adopted the delivered Worker", client:Get("TService") ~= nil)
+	check("...as a Service, not some separate kind", table.concat(client:List("Service"), ",") == "TService", table.concat(client:List("Service"), ","))
 	check("__Recip ran, then Start", table.concat(trace.Order, ",") == "__Recip,Start", table.concat(trace.Order, ","))
 	check("...with the server's payload", client:Get("TService").Payload.Difficulty == 3)
 
