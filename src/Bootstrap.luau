@@ -35,6 +35,7 @@ local ROLES = {
 -- server therefore mounts the bin but never starts anything in it.
 local WORKER_BIN = "Worker"
 local WORKER_FOLDER = "__TrellisWorkers"
+local DELIVERY_TIMEOUT = 10
 
 -- Src mirrors onto the module, so these keys belong to the framework. A module
 -- defining one would silently shadow it, so it is a boot error instead.
@@ -580,6 +581,14 @@ function Bootstrap.Configure(config, opts)
 
 	end
 
+	-- 8b ------------------------------------------- wait for delivered halves
+	-- A Controller's :Start may reach for a Service whose client half is still in
+	-- flight, so the client asks the server what is coming and waits for it. One
+	-- round trip, and only when something actually serves.
+	if side == "Client" and runtime.AwaitDelivery then
+		runtime.AwaitDelivery()
+	end
+
 	-- 9 --------------------------------------------------------------- :Start
 	for _, name in order do
 		local entry = modules[name]
@@ -698,6 +707,17 @@ function Bootstrap.Configure(config, opts)
 		-- Every Service with :__Serve sends its own module over on join. The client
 		-- runs __Serve from that copy, so the half it returns is built there.
 		local serving = servingServices(modules)
+
+		-- The client asks what to expect, so it can wait for delivery before it
+		-- starts anything. Without this a Controller's :Start would reach for a
+		-- Service whose client half is still in flight.
+		local manifest = junction:Instance("Network.__Serve.Fetch")
+		if manifest then
+			manifest.OnServerInvoke = function()
+				return serving
+			end
+		end
+
 		if #serving > 0 then
 			local players = opts.Players or game:GetService("Players")
 			local function serveTo(player)
@@ -712,7 +732,7 @@ function Bootstrap.Configure(config, opts)
 		end
 	else
 		-- Client: adopt whatever arrives, retire whatever leaves.
-		local function adopt(instance)
+		local function adoptInstance(instance, startNow: boolean)
 			if not instance:IsA("ModuleScript") then
 				return
 			end
@@ -788,7 +808,19 @@ function Bootstrap.Configure(config, opts)
 			-- No client half, so what __Serve returned IS the Service.
 			local entry = { Name = name, Role = "Service", Module = served, Source = instance }
 			registry:Mount("Service", name, served)
-			bootModule(entry, tuning[name])
+
+			if startNow then
+				bootModule(entry, tuning[name])
+			else
+				-- Still booting: join the queue rather than jumping it.
+				inject(entry, tuning[name])
+				modules[name] = entry
+				table.insert(order, name)
+			end
+		end
+
+		local function adopt(instance)
+			adoptInstance(instance, true)
 		end
 
 		local function watch(folder)
@@ -801,6 +833,51 @@ function Bootstrap.Configure(config, opts)
 			end))
 			for _, child in folder:GetChildren() do
 				task.spawn(adopt, child)
+			end
+		end
+
+		runtime.AwaitDelivery = function()
+			local remote = junction:Instance("Network.__Serve.Fetch")
+			if not remote then
+				return
+			end
+
+			local ok, expected = pcall(function()
+				return remote:InvokeServer()
+			end)
+			if not ok or type(expected) ~= "table" or #expected == 0 then
+				return
+			end
+
+			local player = runtime.Player
+			local gui = player and player:FindFirstChild("PlayerGui")
+			if not gui then
+				return
+			end
+
+			local container = gui:FindFirstChild(WORKER_FOLDER)
+			if not container then
+				local waited = gui:WaitForChild(WORKER_FOLDER, DELIVERY_TIMEOUT)
+				container = waited
+			end
+			if not container then
+				warn(
+					string.format(
+						"[Trellis] nothing was delivered within %ds; %d client halves are missing",
+						DELIVERY_TIMEOUT,
+						#expected
+					)
+				)
+				return
+			end
+
+			for _, name in expected do
+				local instance = container:FindFirstChild(name) or container:WaitForChild(name, DELIVERY_TIMEOUT)
+				if instance then
+					adoptInstance(instance, false)
+				else
+					warn(string.format("[Trellis] the client half of %s never arrived", name))
+				end
 			end
 		end
 
