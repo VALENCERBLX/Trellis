@@ -262,92 +262,164 @@ end
 
 -- ================================================ 4b. double-sided Services ===
 
--- A Service may serve BOTH sides from one shared module:
+-- A Service may serve BOTH sides while keeping its server half private:
 --
---   -- ReplicatedStorage/Shared/Modules/Services/CombatService  (must be replicated)
---   function CombatService:Start() end          -- the SERVER half
---   function CombatService:__Serve()            -- returns the CLIENT half
---       local Client = {}
---       function Client:Start() end
---       return Client
+--   -- ServerStorage/Modules/Services/TService        (never replicates)
+--   function TService:Start() end                     -- the server half
+--   function TService:__Serve()                       -- runs ON THE SERVER
+--       return { Difficulty = 3, Combos = { "Light", "Heavy" } }
 --   end
 --
--- __Serve is NOT a transfer. Server containers never replicate and functions do not
--- cross remotes, so the client requires the same shared module and runs __Serve
--- ITSELF, in its own VM. Two things follow: the module must live somewhere
--- replicated, so its server half is readable by exploiters; keep secrets in a Manager.
--- And __Serve must be self-contained, because every upvalue it closes over is the
--- client's copy.
+--   -- ReplicatedStorage/Client/Modules/Services/TService
+--   function TService:__Recip(served)                 -- runs ON THE CLIENT
+--       self.Config = served
+--   end
+--   function TService:Start() end                     -- then boots normally
 --
--- Optionally the client tree holds a host of the same name that receives the served
--- table instead of the framework booting it directly:
+-- __Serve returns DATA, not code. Functions cannot cross a remote, so the client's
+-- half has to be a real module on the client; what the server sends is what that
+-- module could not work out for itself. The payload is computed once at boot and is
+-- the same for every player.
 --
---   -- StarterPlayerScripts/Client/Services/CombatService
---   function CombatService:__Recip(served) self.Served = served end
---
--- That same-name pairing is the one duplicate the registry tolerates.
-local function pairServices(registry, side: string)
-	if side ~= "Client" then
-		return -- the server boots the shared module's own body; __Serve is the client's
-	end
+-- __Recip is called before :Start, so a host can rely on the served data being there
+-- by the time it starts. Everything else about the host is ordinary: Req, fences,
+-- BootOrder and the rest all apply.
 
-	if not registry._bins.Service then
+local SERVE_TIMEOUT = 10
+
+-- Functions, threads and userdata do not survive a remote. Catching that here names
+-- the exact key rather than leaving the client with a table full of holes.
+local function unsendable(value, path: string, found: { string }, depth: number)
+	local kind = type(value)
+
+	if kind == "function" or kind == "thread" then
+		table.insert(found, string.format("%s is a %s", path, kind))
 		return
 	end
+	if kind ~= "table" then
+		return
+	end
+	if depth > 6 then
+		return
+	end
+	if getmetatable(value) ~= nil then
+		table.insert(found, string.format("%s has a metatable, which is stripped in transit", path))
+	end
 
-	local function serve(name: string, server, host)
-		local ok, served = pcall(server.__Serve, server)
+	for key, inner in value do
+		unsendable(inner, path .. "." .. tostring(key), found, depth + 1)
+	end
+end
+
+-- Server: run every __Serve once and answer the client's single fetch with all of
+-- them at once, so a boot costs one round trip however many Services serve.
+local function installServe(registry, modules, junction)
+	local payloads, serving = {}, 0
+
+	for name, entry in modules do
+		local module = entry.Module
+		if entry.Role ~= "Service" or type(module.__Serve) ~= "function" then
+			continue
+		end
+
+		local ok, served = pcall(module.__Serve, module)
 		if not ok then
 			fail("%s:__Serve errored: %s", name, tostring(served))
 		end
-		if type(served) ~= "table" then
-			fail("%s:__Serve returned a %s, not a module table", name, type(served))
+		if served ~= nil and type(served) ~= "table" then
+			fail("%s:__Serve returned a %s; it must return a table of data, or nil", name, type(served))
 		end
 
-		if host then
-			local recipOk, err = pcall(host.__Recip, host, served)
-			if not recipOk then
-				fail("%s:__Recip errored: %s", name, tostring(err))
-			end
-			registry:Reconcile("Service", name, host)
-		else
-			registry:Reconcile("Service", name, served)
+		local problems = {}
+		unsendable(served, name, problems, 0)
+		if #problems > 0 then
+			fail(
+				"%s:__Serve returned data a remote cannot carry:\n    %s\n    "
+					.. "__Serve sends DATA to the client, not code. The client half must be "
+					.. "a real module in a replicated container.",
+				name,
+				table.concat(problems, "\n    ")
+			)
+		end
+
+		payloads[name] = served or {}
+		serving += 1
+	end
+
+	local remote = junction:Instance("Network.__Serve.Fetch")
+	if remote then
+		remote.OnServerInvoke = function()
+			return payloads
 		end
 	end
 
-	-- Contested names first: a shared __Serve module paired with a client __Recip
-	-- host is the one duplicate the registry tolerates.
-	for _, name in registry:ClaimedNames("Service") do
-		local server, host
-		for _, claim in registry:Claims("Service", name) do
-			local value = registry:Load(claim)
-			if type(value) ~= "table" then
-				continue
-			end
-			if type(value.__Serve) == "function" then
-				server = value
-			elseif type(value.__Recip) == "function" then
-				host = value
-			end
-		end
+	return serving
+end
 
-		if server then
-			serve(name, server, host)
+-- Client: one fetch, then hand each payload to its host before anything starts.
+local function receiveServe(registry, modules, junction)
+	local hosts = {}
+	for name, entry in modules do
+		if entry.Role == "Service" and type(entry.Module.__Recip) == "function" then
+			hosts[name] = entry
 		end
-		-- otherwise it is a genuine collision; Resolve reports it with every origin
 	end
 
-	-- Then the uncontested ones: a shared Service that serves but has no client host
-	-- is simply replaced by what __Serve returns.
-	for _, name in registry:Names("Service") do
-		if registry:Claims("Service", name) then
+	if next(hosts) == nil then
+		return 0
+	end
+
+	local remote = junction:Instance("Network.__Serve.Fetch")
+	if not remote then
+		warn("[Trellis] no __Serve channel; __Recip hosts will not receive anything")
+		return 0
+	end
+
+	local ok, payloads = pcall(function()
+		return remote:InvokeServer()
+	end)
+
+	if not ok or type(payloads) ~= "table" then
+		warn(
+			string.format(
+				"[Trellis] could not fetch __Serve payloads (%s). __Recip hosts start "
+					.. "without their served data.",
+				tostring(payloads)
+			)
+		)
+		payloads = {}
+	end
+
+	local received = 0
+	for name, entry in hosts do
+		local served = payloads[name]
+		if served == nil then
+			warn(
+				string.format(
+					"[Trellis] %s defines :__Recip, but no Service named %q on the server "
+						.. "defines :__Serve, so there is nothing to receive.",
+					name,
+					name
+				)
+			)
 			continue
 		end
-		local value = registry:Resolve("Service", name)
-		if type(value) == "table" and type(value.__Serve) == "function" then
-			serve(name, value, nil)
+
+		-- A host that RETURNS a table becomes that table. Otherwise it keeps its own
+		-- identity. Reassigning a local inside __Recip does nothing: the module table
+		-- was already returned, so the framework is holding the original.
+		local recipOk, replacement = pcall(entry.Module.__Recip, entry.Module, served)
+		if not recipOk then
+			fail("%s:__Recip errored: %s", name, tostring(replacement))
 		end
+		if type(replacement) == "table" then
+			entry.Module = replacement
+			registry:Reconcile("Service", name, replacement)
+		end
+		received += 1
 	end
+
+	return received
 end
 
 -- ============================================================ 7. the boot order ===
@@ -598,12 +670,20 @@ function Bootstrap.Configure(config, opts)
 	local registers = loadConfig(registry, config, "Registers", false)
 
 	-- 4 --------------------------------------------------------------- preload
-	pairServices(registry, side)
 	local modules, discovered = collectModules(registry, side)
 
 	-- 5 -------------------------------------------------------------- junction
 	local junction = Junction.new(junctionMap, side, { Registry = registry, Clock = opts.Clock })
 	junction:Materialize(opts.IO or Bootstrap.defaultIO(side))
+
+	-- 5b ------------------------------------------------- double-sided Services
+	-- Before anything starts, so a __Recip host can rely on its served data being
+	-- there by the time :Start runs.
+	if side == "Server" then
+		installServe(registry, modules, junction)
+	else
+		receiveServe(registry, modules, junction)
+	end
 
 	-- 6 ------------------------------------------------------------- registers
 	local log = if config.Log then Log.new(config.Log, opts.Clock) else nil
@@ -1614,6 +1694,7 @@ end
 local BUILTIN = {
 	{ Path = "Network.__Reg.Delta", Domain = "__Reg", Event = "Delta", Class = "RemoteEvent" },
 	{ Path = "Network.__Reg.Request", Domain = "__Reg", Event = "Request", Class = "RemoteFunction" },
+	{ Path = "Network.__Serve.Fetch", Domain = "__Serve", Event = "Fetch", Class = "RemoteFunction" },
 }
 
 function Junction:Materialize(io: { [string]: any })

@@ -315,6 +315,7 @@ end
 local BUILTIN = {
 	{ Path = "Network.__Reg.Delta", Domain = "__Reg", Event = "Delta", Class = "RemoteEvent" },
 	{ Path = "Network.__Reg.Request", Domain = "__Reg", Event = "Request", Class = "RemoteFunction" },
+	{ Path = "Network.__Serve.Fetch", Domain = "__Serve", Event = "Fetch", Class = "RemoteFunction" },
 }
 
 function Junction:Materialize(io: { [string]: any })

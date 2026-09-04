@@ -340,34 +340,38 @@ at any rate.
 
 ## Double-sided Services
 
-One module in a replicated container can serve both sides.
+A Service can serve both sides while its server half stays private.
 
 ```lua
+-- ServerStorage/Modules/Services/CombatService      (never replicates)
 function CombatService:Start() end        -- the server half
 
-function CombatService:__Serve()          -- returns the client half
-    local Client = {}
-    function Client:Start() end
-    return Client
+function CombatService:__Serve()          -- runs on the SERVER, returns DATA
+    return { Combos = self:LoadCombos(), Difficulty = 3 }
 end
 ```
-
-`__Serve` is a factory the client runs, not a table the server sends. Server containers
-never replicate and functions do not cross remotes, so the client requires the same
-shared module and calls `__Serve` in its own VM. Two consequences worth stating plainly.
-The module must live somewhere replicated, so its server half is readable by exploiters;
-keep drop tables and anti-cheat thresholds in a Manager. And `__Serve` must be
-self-contained, because every upvalue it closes over is the client's copy.
-
-A client module of the same name may receive it instead:
 
 ```lua
-function CombatService:__Recip(served)
-    self.Served = served
+-- ReplicatedStorage/Client/Modules/Services/CombatService
+function CombatService:__Recip(served)    -- runs on the CLIENT
+    self.Combos = served.Combos
 end
+
+function CombatService:Start(Src) end     -- then boots normally
 ```
 
-That pairing is the one duplicate name the registry tolerates.
+`__Serve` returns data, not code. Functions cannot cross a remote, so the client's half
+is a real module on the client; what the server sends is what that module could not
+work out for itself. Returning a function, a thread, or a table carrying a metatable is
+a boot error naming the exact key, because none of those survive the trip.
+
+`__Recip` runs before `:Start`, so a host can rely on its data being there by the time
+it starts. Everything else about the host is ordinary: `Req`, fences and `BootOrder` all
+apply. Returning a table from `__Recip` replaces the module with it.
+
+The payload is computed once at boot and is the same for every player, and one fetch
+covers every serving Service, so a client boot costs one round trip however many there
+are. Sharing a name across the two sides is the one duplicate the registry tolerates.
 
 ---
 

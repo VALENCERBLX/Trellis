@@ -332,137 +332,175 @@ end
 -- a map with no Destinations, so these cases exercise Services rather than routing
 local BARE_MAP = { Network = { Ping = { Send = {} } } }
 
-local function doubleSided(withHost)
-	local served = { Built = 0 }
+-- The server keeps its half private in a non-replicating container, runs __Serve
+-- there, and Trellis carries the DATA to the client's own module, which receives it
+-- through __Recip before it starts.
 
-	local shared = gameModule("CombatService")
-	shared.__Serve = function()
-		served.Built += 1
-		local Client = {}
-		function Client:Start()
-			note("CombatService(client):Start")
-		end
-		function Client:Hello()
-			return "from __Serve"
-		end
-		return Client
+local function servePair(hostBody)
+	local trace = { Order = {} }
+
+	local server = gameModule("TService")
+	server.__Serve = function()
+		table.insert(trace.Order, "server:__Serve")
+		return { Difficulty = 3, Combos = { "Light", "Heavy" } }
 	end
 
-	local host
-	if withHost then
-		host = gameModule("CombatService")
-		host.__Recip = function(self, t)
-			note("CombatService:__Recip")
-			self.Served = t
-		end
+	local host = gameModule("TService")
+	host.__Recip = hostBody or function(self, served)
+		table.insert(trace.Order, "client:__Recip")
+		self.Served = served
+	end
+	local hostStart = host.Start
+	host.Start = function(self, Src)
+		table.insert(trace.Order, "client:Start")
+		hostStart(self, Src)
 	end
 
-	local clientServices = { module("HudService", gameModule("HudService")) }
-	if host then
-		table.insert(clientServices, module("CombatService", host))
-	end
+	return server, host, trace
+end
 
-	local h = {
-		folder("Shared", {
-			folder("Config", {
-				module("Junction", BARE_MAP),
-				module("BootOrder", { Order = {}, Config = {} }),
-			}),
-			folder("Services", { module("CombatService", shared) }),
-		}),
-		folder("Client", { folder("Services", clientServices) }),
+local function serveIO()
+	local answer
+	local remote = {}
+	function remote:InvokeServer()
+		return answer and answer() or nil
+	end
+	return remote, function(fn)
+		answer = fn
+	end
+end
+
+do
+	log = {}
+	local server, host, trace = servePair()
+	local remote, setAnswer = serveIO()
+
+	local io = {
+		New = function(class, domain, event)
+			if domain == "__Serve" then
+				return remote
+			end
+			return { Class = class }
+		end,
+		Wait = function(domain)
+			if domain == "__Serve" then
+				return remote
+			end
+			return {}
+		end,
 	}
 
-	return h, served, host
-end
-
-do
-	log = {}
-	local h, served = doubleSided(false)
-	local app = Bootstrap.Configure({ Hierarchy = h }, opts({ Side = "Client" }))
-
-	check("the client runs __Serve itself", served.Built == 1, served.Built)
-	check("the served table boots as the Service", indexOf("CombatService(client):Start") ~= nil)
-	check("...under the shared module's name", app:Get("CombatService"):Hello() == "from __Serve")
-end
-
-do
-	log = {}
-	local h, served, host = doubleSided(true)
-	local app = Bootstrap.Configure({ Hierarchy = h }, opts({ Side = "Client" }))
-
-	check("a same-name client host receives it via __Recip", indexOf("CombatService:__Recip") ~= nil)
-	check("...and gets the served table", host.Served.Hello() == "from __Serve")
-	check("the HOST is what boots, not the served table", app:Get("CombatService") == host)
-	check("the served table did not also boot", indexOf("CombatService(client):Start") == nil)
-end
-
-do
-	-- the server ignores __Serve entirely: it boots the shared module's own body
-	log = {}
-	local h, served = doubleSided(false)
-	table.remove(h, 2) -- drop the client root
-	local app = Bootstrap.Configure({ Hierarchy = h }, opts())
-
-	check("the server never calls __Serve", served.Built == 0, served.Built)
-	check("...it boots the shared module itself", indexOf("CombatService:Start") ~= nil)
-end
-
-do
-	-- two same-named Services with no __Serve is still a genuine collision
-	expectError("a real duplicate Service still fails", function()
-		local h = {
+	local function place(side, mods)
+		return {
 			folder("Shared", {
 				folder("Config", {
 					module("Junction", BARE_MAP),
 					module("BootOrder", { Order = {}, Config = {} }),
 				}),
-				folder("Services", { module("GhostService", gameModule("GhostService")) }),
 			}),
-			folder("Client", { folder("Services", { module("GhostService", gameModule("GhostService")) }) }),
+			mods,
 		}
-		return Bootstrap.Configure({ Hierarchy = h }, opts({ Side = "Client" }))
-	end, 'duplicate Service "GhostService", mounted from:')
+	end
+
+	-- the server half lives where the client can never see it
+	local serverApp = Bootstrap.Configure({
+		Hierarchy = place("Server", folder("Server", { folder("Services", { module("TService", server) }) })),
+	}, opts({ IO = io }))
+
+	check("the server runs __Serve at boot", trace.Order[1] == "server:__Serve", table.concat(trace.Order, ","))
+	setAnswer(function()
+		return remote.OnServerInvoke()
+	end)
+	check("...and answers the fetch with it", remote.OnServerInvoke().TService.Difficulty == 3)
+
+	-- the client's own module receives the data
+	local clientApp = Bootstrap.Configure({
+		Hierarchy = place("Client", folder("Client", { folder("Services", { module("TService", host) }) })),
+	}, opts({ Side = "Client", IO = io }))
+
+	check("__Recip runs on the client", host.Served ~= nil)
+	check("...with the served data", host.Served.Difficulty == 3 and host.Served.Combos[2] == "Heavy")
+	check("...BEFORE :Start", table.find(trace.Order, "client:__Recip") < table.find(trace.Order, "client:Start"))
+	check("the host boots as an ordinary Service", clientApp:Get("TService") == host)
+
+	serverApp:Stop()
+	clientApp:Stop()
 end
 
--- ============================ Config as a MODULE rather than a folder ===
--- Utilities/Config holding Junction as a child, which is how a place laid out the
--- Junky way keeps it. No Config bin exists, so Configure has to look inside.
 do
-	local MAP = { Network = { Ping = { Send = {} } } }
-
-	local configModule = module("Config", {})
-	table.insert(configModule._children, module("Junction", MAP))
-	configModule._children[#configModule._children]._parent = configModule
-
-	local h = {
-		folder("Shared", {
-			folder("Utilities", { configModule }),
-			folder("Services", { module("EchoService", (function()
-				local m = {}
-				function m:Start() end
-				return m
-			end)()) }),
-		}),
+	-- a host that returns a table becomes that table
+	local server, host = servePair(function(_, served)
+		local replacement = { Served = served }
+		function replacement:Start() end
+		return replacement
+	end)
+	local remote, setAnswer = serveIO()
+	local io = {
+		New = function(_, domain)
+			return domain == "__Serve" and remote or {}
+		end,
+		Wait = function(domain)
+			return domain == "__Serve" and remote or {}
+		end,
 	}
 
-	local app = Bootstrap.Configure({ Hierarchy = h }, opts())
-	check("a Config MODULE is found without a Config bin", app ~= nil)
-	check("...and its child Junction was used", app:Inspect().Routes[1].Path == "Network.Ping.Send", app:Inspect().Routes[1].Path)
-	check("...while the module itself stays a normal Utility entry", table.concat(app:Inspect().Bins, ",") == "Service,Utility", table.concat(app:Inspect().Bins, ","))
+	Bootstrap.Configure({
+		Hierarchy = {
+			folder("Shared", { folder("Config", { module("Junction", BARE_MAP), module("BootOrder", { Order = {}, Config = {} }) }) }),
+			folder("Server", { folder("Services", { module("TService", server) }) }),
+		},
+	}, opts({ IO = io }))
+	setAnswer(function()
+		return remote.OnServerInvoke()
+	end)
+
+	local app = Bootstrap.Configure({
+		Hierarchy = {
+			folder("Shared", { folder("Config", { module("Junction", BARE_MAP), module("BootOrder", { Order = {}, Config = {} }) }) }),
+			folder("Client", { folder("Services", { module("TService", host) }) }),
+		},
+	}, opts({ Side = "Client", IO = io }))
+
+	check("a __Recip that returns a table replaces the module", app:Get("TService") ~= host)
+	check("...and the replacement got the data", app:Get("TService").Served.Difficulty == 3)
 	app:Stop()
 end
 
+expectError("__Serve returning functions is refused, naming the key", function()
+	local bad = gameModule("BadService")
+	bad.__Serve = function()
+		return { Start = function() end }
+	end
+	return Bootstrap.Configure({
+		Hierarchy = {
+			folder("Shared", { folder("Config", { module("Junction", BARE_MAP), module("BootOrder", { Order = {}, Config = {} }) }) }),
+			folder("Server", { folder("Services", { module("BadService", bad) }) }),
+		},
+	}, opts())
+end, "BadService.Start is a function")
+
 do
-	-- the same, but the Config module re-exports rather than relying on children
-	local MAP = { Network = { Pong = { Send = {} } } }
-	local h = {
-		folder("Shared", {
-			folder("Utilities", { module("Config", { Junction = MAP }) }),
-		}),
+	-- a host with no server partner says so instead of starting silently wrong
+	H.warnings.clear()
+	local _, host = servePair()
+	local remote = { InvokeServer = function()
+		return {}
+	end }
+	local io = {
+		New = function(_, domain)
+			return domain == "__Serve" and remote or {}
+		end,
+		Wait = function(domain)
+			return domain == "__Serve" and remote or {}
+		end,
 	}
-	local app = Bootstrap.Configure({ Hierarchy = h }, opts())
-	check("a Config module's returned table wins", app:Inspect().Routes[1].Path == "Network.Pong.Send", app:Inspect().Routes[1].Path)
+	local app = Bootstrap.Configure({
+		Hierarchy = {
+			folder("Shared", { folder("Config", { module("Junction", BARE_MAP), module("BootOrder", { Order = {}, Config = {} }) }) }),
+			folder("Client", { folder("Services", { module("TService", host) }) }),
+		},
+	}, opts({ Side = "Client", IO = io }))
+	T.warned("a __Recip with no server __Serve warns", "no Service named \"TService\" on the server")
 	app:Stop()
 end
 
