@@ -727,6 +727,9 @@ function Bootstrap.Configure(config, opts)
 			entry.Src:_teardown()
 		end
 		scheduler:Remove(name)
+		if entry.Role == "Worker" then
+			registry:Unmount(WORKER_BIN, name)
+		end
 		setmetatable(entry.Module, nil)
 		modules[name] = nil
 		local index = table.find(order, name)
@@ -834,6 +837,7 @@ function Bootstrap.Configure(config, opts)
 				end
 			end
 
+			registry:Mount(WORKER_BIN, instance.Name, entry.Module)
 			bootModule(entry, tuning[instance.Name])
 		end
 
@@ -1127,8 +1131,16 @@ function Bootstrap.arm(scheduler, opts)
 		Step = "Stepped",
 	}
 
-	for _, driver in scheduler:Drivers() do
+	-- Every driver this side can have, not merely the ones with tasks right now. A
+	-- Worker deployed an hour from now may be the first thing that ever asks for a
+	-- heartbeat, and by then it is far too late to connect.
+	local drivers = if scheduler._side == "Client" then { "Heart", "Render", "Step" } else { "Heart", "Step" }
+
+	for _, driver in drivers do
 		local signal = RunService[SIGNALS[driver]]
+		if not signal then
+			continue
+		end
 		table.insert(
 			connections,
 			signal:Connect(function(a, b)

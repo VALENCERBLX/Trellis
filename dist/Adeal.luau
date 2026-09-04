@@ -833,6 +833,9 @@ function Bootstrap.Configure(config, opts)
 			entry.Src:_teardown()
 		end
 		scheduler:Remove(name)
+		if entry.Role == "Worker" then
+			registry:Unmount(WORKER_BIN, name)
+		end
 		setmetatable(entry.Module, nil)
 		modules[name] = nil
 		local index = table.find(order, name)
@@ -940,6 +943,7 @@ function Bootstrap.Configure(config, opts)
 				end
 			end
 
+			registry:Mount(WORKER_BIN, instance.Name, entry.Module)
 			bootModule(entry, tuning[instance.Name])
 		end
 
@@ -1233,8 +1237,16 @@ function Bootstrap.arm(scheduler, opts)
 		Step = "Stepped",
 	}
 
-	for _, driver in scheduler:Drivers() do
+	-- Every driver this side can have, not merely the ones with tasks right now. A
+	-- Worker deployed an hour from now may be the first thing that ever asks for a
+	-- heartbeat, and by then it is far too late to connect.
+	local drivers = if scheduler._side == "Client" then { "Heart", "Render", "Step" } else { "Heart", "Step" }
+
+	for _, driver in drivers do
 		local signal = RunService[SIGNALS[driver]]
+		if not signal then
+			continue
+		end
 		table.insert(
 			connections,
 			signal:Connect(function(a, b)
@@ -3253,6 +3265,35 @@ function Registry:Reconcile(binName: string, name: string, value: any)
 	end
 end
 
+-- Add an entry after construction, generating that bin's getters if the bin is new.
+-- An adopted Worker arrives long after boot and still has to be reachable the normal
+-- way, through :GetWorker rather than through some side channel.
+function Registry:Mount(binName: string, name: string, value: any)
+	local fresh = self._bins[binName] == nil
+	self:_bin(binName, binName)
+
+	self._bins[binName][name] = {
+		Name = name,
+		Source = value,
+		Origin = string.format("mounted %s.%s", binName, name),
+		Value = value,
+		Loaded = true,
+	}
+
+	if fresh then
+		-- Getters only. Main mirrors the hierarchy you wrote, and a Worker mounted at
+		-- runtime was never in it.
+		self:_generateGetters(binName)
+	end
+end
+
+function Registry:Unmount(binName: string, name: string)
+	local bin = self._bins[binName]
+	if bin then
+		bin[name] = nil
+	end
+end
+
 function Registry:Load(entry: Entry): any
 	return self:_load(entry)
 end
@@ -3372,17 +3413,21 @@ end
 -- Main is keyed by the CONTAINER name (plural, as it appears in the hierarchy);
 -- the getter is keyed by the BIN name (singular). Both resolve lazily through the
 -- same cache, so neither view requires a module the other already loaded.
+function Registry:_generateGetters(binName: string)
+	self["Get" .. binName] = function(_, name: string)
+		return self:Resolve(binName, name)
+	end
+	self["Has" .. binName] = function(_, name: string): boolean
+		return self:Resolve(binName, name, true) ~= nil
+	end
+	self["List" .. binName] = function(_): { string }
+		return self:Names(binName)
+	end
+end
+
 function Registry:_generate()
 	for binName in self._bins do
-		self["Get" .. binName] = function(_, name: string)
-			return self:Resolve(binName, name)
-		end
-		self["Has" .. binName] = function(_, name: string): boolean
-			return self:Resolve(binName, name, true) ~= nil
-		end
-		self["List" .. binName] = function(_): { string }
-			return self:Names(binName)
-		end
+		self:_generateGetters(binName)
 
 		self.Main[self._containers[binName]] = setmetatable({}, {
 			__index = function(_, name: string)
