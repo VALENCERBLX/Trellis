@@ -360,10 +360,30 @@ end
 function CombatService:Start(Src) end     -- then boots normally
 ```
 
-`__Serve` returns data, not code. Functions cannot cross a remote, so the client's half
-is a real module on the client; what the server sends is what that module could not
-work out for itself. Returning a function, a thread, or a table carrying a metatable is
-a boot error naming the exact key, because none of those survive the trip.
+`__Serve` returns data, not code. Returning a function, a thread, or a table carrying a
+metatable is a boot error naming the exact key, because none of those survive the trip.
+
+There is no way around that, and it is worth knowing why rather than looking for one.
+Luau has no `string.dump`, a function's source cannot be read at runtime, and
+`loadstring` does not exist on the client. So a function can be neither encoded on the
+way out nor decoded on the way back.
+
+Send which function instead of the function. Every code path lives on the client where
+it has to, and the server decides which one runs:
+
+```lua
+-- server
+function CombatService:__Serve()
+    return { Behavior = "Aggressive", Difficulty = 3 }
+end
+
+-- client, where the code already lives
+local Behaviors = { Aggressive = function() end, Passive = function() end }
+
+function CombatService:__Recip(served)
+    self.Behave = Behaviors[served.Behavior]
+end
+```
 
 `__Recip` runs before `:Start`, so a host can rely on its data being there by the time
 it starts. Everything else about the host is ordinary: `Req`, fences and `BootOrder` all

@@ -334,9 +334,15 @@ local function installServe(registry, modules, junction)
 		unsendable(served, name, problems, 0)
 		if #problems > 0 then
 			fail(
-				"%s:__Serve returned data a remote cannot carry:\n    %s\n    "
-					.. "__Serve sends DATA to the client, not code. The client half must be "
-					.. "a real module in a replicated container.",
+				"%s:__Serve returned data a remote cannot carry:\n    %s\n\n"
+					.. "    Functions cannot be sent, and cannot be worked around: Luau has no\n"
+					.. "    string.dump, a function's source cannot be read at runtime, and\n"
+					.. "    loadstring does not exist on the client. Send WHICH function\n"
+					.. "    instead of the function:\n\n"
+					.. "        -- server\n"
+					.. "        return { Behavior = \"Aggressive\" }\n\n"
+					.. "        -- client, where the code already lives\n"
+					.. "        self.Behave = Behaviors[served.Behavior]\n",
 				name,
 				table.concat(problems, "\n    ")
 			)
