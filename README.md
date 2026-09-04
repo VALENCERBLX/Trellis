@@ -395,10 +395,22 @@ The result is an ordinary Service. `Src:GetService(name)` reaches it, `Req` and 
 apply, `:Stop` runs on teardown. With no client half at all, what `__Serve` returns is
 the Service.
 
-**Only Workers are ever delivered.** A Service declaring `__Serve` without a Worker is a
-boot error, and `Src:Deploy` will not fall back to a Service module either. There is no
-path, accidental or otherwise, that sends server code to a client. That restriction is
-the entire point: a glimpse of the server is a glimpse too many.
+### Which file gets delivered
+
+A Worker of the same name is preferred, and then **only that file is sent**: nothing in
+the Service module can reach a client.
+
+Without one, the Service module **itself** is delivered, whole. That is a fine choice
+for shared protocol code and a bad one for anything you would mind a player reading, so
+Trellis warns about it once at boot and names the Services concerned:
+
+```
+[Trellis] delivering these Service modules WHOLE to every player, because they
+declare :__Serve and have no Worker: TService.
+```
+
+Allowed, never silent. Secrets belong in a **Manager** either way, since those never
+replicate under any circumstances.
 
 ### Deploying by hand
 

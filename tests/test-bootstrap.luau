@@ -520,29 +520,14 @@ do
 	client:Stop()
 end
 
-expectError("a serving Service with no Worker is a boot error, not a leak", function()
+do
+	-- Allowed, but loudly: without a Worker the Service module itself is delivered.
+	H.warnings.clear()
 	local half = {}
 	function half:Start() end
 	function half:__Serve()
 		return {}
 	end
-
-	return Bootstrap.Configure({
-		Hierarchy = {
-			folder("Shared", {
-				folder("Config", {
-					module("Junction", BARE_MAP),
-					module("BootOrder", { Order = {}, Config = {} }),
-				}),
-			}),
-			folder("Server", { folder("Services", { module("Leaky", half) }) }),
-		},
-	}, opts())
-end, 'Leaky declares :__Serve but there is no Worker named "Leaky"')
-
-expectError("Deploy never falls back to a Service module", function()
-	local half = {}
-	function half:Start() end
 
 	local app = Bootstrap.Configure({
 		Hierarchy = {
@@ -552,12 +537,14 @@ expectError("Deploy never falls back to a Service module", function()
 					module("BootOrder", { Order = {}, Config = {} }),
 				}),
 			}),
-			folder("Server", { folder("Services", { module("Private", half) }) }),
+			folder("Server", { folder("Services", { module("Shared2", half) }) }),
 		},
 	}, opts())
 
-	return app.Src:Deploy("Private", { Name = "Ada", UserId = 9 })
-end, 'no Worker named "Private"')
+	check("a serving Service with no Worker still boots", app ~= nil)
+	T.warned("...and says the module is delivered whole", "delivering these Service modules WHOLE")
+	app:Stop()
+end
 
 -- ======================================== BootOrder is shared across both sides ===
 -- One BootOrder file lists Controllers and Managers together, so each side sees

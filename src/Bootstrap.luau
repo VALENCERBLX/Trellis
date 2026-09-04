@@ -191,9 +191,24 @@ local SERVE_TIMEOUT = 10
 -- Where a delivered module lands. PlayerGui replicates to its own player and nobody
 -- else, which is what makes per-player delivery private rather than merely addressed.
 local function workerContainer(target, opts)
-	local ReplicatedStorage = (opts and opts.ReplicatedStorage) or game:GetService("ReplicatedStorage")
+	-- A place without ReplicatedStorage is a test harness, and a harness with nothing
+	-- to deliver to should not take the boot down.
+	local ok, ReplicatedStorage = pcall(function()
+		return (opts and opts.ReplicatedStorage) or game:GetService("ReplicatedStorage")
+	end)
+	if not ok or not ReplicatedStorage then
+		return nil
+	end
 
-	local parent = if target == "all" then ReplicatedStorage else target:FindFirstChild("PlayerGui")
+	local parent
+	if target == "all" then
+		parent = ReplicatedStorage
+	elseif type(target) == "table" or typeof(target) == "Instance" then
+		local found, gui = pcall(function()
+			return target:FindFirstChild("PlayerGui")
+		end)
+		parent = found and gui or nil
+	end
 	if not parent then
 		return nil
 	end
@@ -207,38 +222,45 @@ local function workerContainer(target, opts)
 	return folder
 end
 
--- A Service's client half is the Worker of the same name, and ONLY that. The server
--- Service module is never delivered, so no part of it can ever reach a client: not
--- its :Start, not a constant, not a comment. That is the whole reason Workers exist,
--- and a fallback that ships the Service module "just this once" would quietly undo it.
+-- Which Services have a client half, and which file carries it.
 --
--- A Service that declares :__Serve without a Worker is therefore a boot error. The
--- alternative is leaking server code to every player, which is not a thing to decide
--- by accident.
+-- A Worker of the same name is preferred: only that file is delivered, so no part of
+-- the Service module can reach a client. Without one, the Service module ITSELF is
+-- delivered, which is a legitimate choice for shared protocol code and a bad one for
+-- anything you would mind a player reading.
+--
+-- That second case is allowed, but never silent. It is warned about once at boot,
+-- because "the client can read this file" is not something to discover later.
 local function servingServices(registry, modules)
 	local workerBin = registry._bins[WORKER_BIN]
-	local serving = {}
+	local serving, exposed = {}, {}
 
 	for name, entry in modules do
 		if entry.Role ~= "Service" then
 			continue
 		end
 
-		local worker = workerBin and workerBin[name]
-		if worker then
+		local hasWorker = workerBin and workerBin[name] ~= nil
+		if hasWorker then
 			table.insert(serving, name)
 		elseif type(entry.Module.__Serve) == "function" then
-			fail(
-				"%s declares :__Serve but there is no Worker named %q.\n"
-					.. "    A client half is delivered as ServerStorage/Modules/Workers/%s, and\n"
-					.. "    only that file is sent. The Service module itself is never delivered,\n"
-					.. "    so nothing in it can reach a client.\n"
-					.. "    Move :__Serve, or the client half it returns, into the Worker.",
-				name,
-				name,
-				name
-			)
+			table.insert(serving, name)
+			table.insert(exposed, name)
 		end
+	end
+
+	if #exposed > 0 then
+		table.sort(exposed)
+		warn(
+			string.format(
+				"[Trellis] delivering these Service modules WHOLE to every player, because "
+					.. "they declare :__Serve and have no Worker: %s.\n"
+					.. "    Everything in those files is readable by any client that receives "
+					.. "them. Add ServerStorage/Modules/Workers/<Name> holding just the client "
+					.. "half to stop that, or keep secrets in a Manager.",
+				table.concat(exposed, ", ")
+			)
+		)
 	end
 
 	table.sort(serving)
@@ -651,22 +673,27 @@ function Bootstrap.Configure(config, opts)
 	end
 
 	if side == "Server" then
-		-- Only ever from the Workers bin. There is deliberately no fallback to the
-		-- Service of that name: delivering a server module is the one thing this is
-		-- built to prevent.
+		-- The Workers bin first, since a Worker exists precisely so the Service module
+		-- can stay put. Falling back to the Service of that name delivers it whole.
 		runtime.Deploy = function(name: string, target: any)
 			local workerBin = registry._bins[WORKER_BIN]
 			local entry = workerBin and workerBin[name]
 
+			if not entry then
+				local serviceBin = registry._bins.Service
+				entry = serviceBin and serviceBin[name]
+			end
+
 			if not entry or not entry.Source then
-				local known = workerBin and registry:Names(WORKER_BIN) or {}
-				fail(
-					"no Worker named %q. Workers here: %s\n"
-						.. "    Only Workers are ever sent to a client. A Service module stays on\n"
-						.. "    the server, always.",
-					name,
-					#known > 0 and table.concat(known, ", ") or "(none)"
-				)
+				local known = {}
+				for _, bin in { WORKER_BIN, "Service" } do
+					if registry._bins[bin] then
+						for _, n in registry:Names(bin) do
+							table.insert(known, n)
+						end
+					end
+				end
+				fail("nothing named %q to deploy. available: %s", name, table.concat(known, ", "))
 			end
 
 			local container = workerContainer(target, opts)
