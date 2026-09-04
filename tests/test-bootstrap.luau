@@ -466,6 +466,111 @@ do
 	client:Stop()
 end
 
+-- ============================== a client Service receives its server counterpart ===
+-- The other half of double-sided Services, and the ordinary one: both halves are
+-- authored in place, one per side, sharing a name. The server's __Serve payload
+-- reaches the client half's __Recip before anything starts.
+
+do
+	local trace = {}
+
+	local serverHalf = gameModule("EchoService")
+	serverHalf.__Serve = function()
+		return { Greeting = "hello", Count = 2 }
+	end
+
+	local clientHalf = {}
+	function clientHalf:__Recip(served)
+		table.insert(trace, "__Recip")
+		self.Served = served
+	end
+	function clientHalf:Start()
+		table.insert(trace, "Start:" .. tostring(self.Served.Greeting))
+	end
+
+	local payloads
+	local serveRemote = {}
+	function serveRemote:InvokeServer(name)
+		if name == nil then
+			return payloads
+		end
+		return payloads and payloads[name]
+	end
+	local io = {
+		New = function(_, domain)
+			return domain == "__Serve" and serveRemote or {}
+		end,
+		Wait = function(domain)
+			return domain == "__Serve" and serveRemote or {}
+		end,
+	}
+
+	local function config(sideFolder)
+		return {
+			folder("Shared", {
+				folder("Config", {
+					module("Junction", { Network = { Ping = { Send = {} } } }),
+					module("BootOrder", { Order = {}, Config = {} }),
+				}),
+			}),
+			sideFolder,
+		}
+	end
+
+	local server = Bootstrap.Configure({
+		Hierarchy = config(folder("Server", { folder("Services", { module("EchoService", serverHalf) }) })),
+	}, opts({ IO = io }))
+
+	payloads = serveRemote.OnServerInvoke and serveRemote.OnServerInvoke() or nil
+	check("the server cached its __Serve payload", payloads ~= nil and payloads.EchoService.Greeting == "hello")
+
+	local client = Bootstrap.Configure({
+		Hierarchy = config(folder("Client", { folder("Services", { module("EchoService", clientHalf) }) })),
+	}, opts({ Side = "Client", IO = io }))
+
+	check("the client half received it", clientHalf.Served ~= nil and clientHalf.Served.Count == 2)
+	check("__Recip ran BEFORE :Start", table.concat(trace, ",") == "__Recip,Start:hello", table.concat(trace, ","))
+	check("...and it is an ordinary Service", client:Get("EchoService") == clientHalf)
+
+	server:Stop()
+	client:Stop()
+end
+
+do
+	-- a client half with nobody serving it says so
+	H.warnings.clear()
+	local lonely = {}
+	function lonely:__Recip() end
+	function lonely:Start() end
+
+	local remote = { InvokeServer = function()
+		return {}
+	end }
+	local io2 = {
+		New = function(_, d)
+			return d == "__Serve" and remote or {}
+		end,
+		Wait = function(d)
+			return d == "__Serve" and remote or {}
+		end,
+	}
+
+	local app = Bootstrap.Configure({
+		Hierarchy = {
+			folder("Shared", {
+				folder("Config", {
+					module("Junction", { Network = { Ping = { Send = {} } } }),
+					module("BootOrder", { Order = {}, Config = {} }),
+				}),
+			}),
+			folder("Client", { folder("Services", { module("LonelyService", lonely) }) }),
+		},
+	}, opts({ Side = "Client", IO = io2 }))
+
+	T.warned("an unserved __Recip warns", 'no Service named "LonelyService" on the server')
+	app:Stop()
+end
+
 -- ======================================== BootOrder is shared across both sides ===
 -- One BootOrder file lists Controllers and Managers together, so each side sees
 -- names it cannot possibly have. Only a name that BELONGS here and is absent is a

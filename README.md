@@ -383,8 +383,27 @@ Delivery is by instance, not by string. A Worker is a real ModuleScript the whol
 so it is full Luau at native speed with real type checking, and there is no compiler,
 no source extraction and no build step anywhere in it.
 
-**A Worker named after a Service is that Service's client half**, and goes out on join
-carrying the Service's `__Serve()` payload:
+### Two ways to be a Service's client half
+
+**A client Service of the same name**, authored in the client tree like any other
+module. It defines `__Recip`, and the server's `__Serve()` payload reaches it before
+anything starts:
+
+```lua
+-- ServerStorage/Modules/Services/TService
+function TService:__Serve() return { Difficulty = 3 } end
+
+-- Client/Modules/Services/TService
+function TService:__Recip(served) self.Difficulty = served.Difficulty end
+function TService:Start(Src) end
+```
+
+Both halves are written in place, one per side, sharing a name. Nothing is deployed;
+the client half was always there and simply learns what the server worked out. This is
+the ordinary case.
+
+**Or a Worker named after the Service**, when the client half should not exist on the
+client until the server sends it. It goes out on join carrying the same payload:
 
 ```lua
 -- Services/TService, on the server

@@ -415,6 +415,76 @@ local function installServe(registry, modules, junction, payloads)
 	return serving
 end
 
+-- Client: a Service that defines :__Recip is the client half of a server Service of
+-- the same name. It is authored in the client tree like any other module; what it
+-- cannot know is whatever the server worked out at boot, so that arrives here.
+--
+-- One fetch covers every such Service, and it happens before any :Start, so a half
+-- can rely on its served data being present by the time it starts.
+local function receiveServe(modules, junction)
+	local hosts = {}
+	for name, entry in modules do
+		if entry.Role == "Service" and type(entry.Module.__Recip) == "function" then
+			hosts[name] = entry
+		end
+	end
+
+	if next(hosts) == nil then
+		return 0
+	end
+
+	local remote = junction:Instance("Network.__Serve.Fetch")
+	local payloads = {}
+	if remote then
+		local ok, fetched = pcall(function()
+			return remote:InvokeServer()
+		end)
+		if ok and type(fetched) == "table" then
+			payloads = fetched
+		else
+			warn(
+				string.format(
+					"[Trellis] could not fetch __Serve payloads (%s); client Services start "
+						.. "without their served data",
+					tostring(fetched)
+				)
+			)
+		end
+	end
+
+	local received = 0
+	for name, entry in hosts do
+		local served = payloads[name]
+		if served == nil then
+			warn(
+				string.format(
+					"[Trellis] %s defines :__Recip, but no Service named %q on the server "
+						.. "defines :__Serve, so there is nothing to receive.",
+					name,
+					name
+				)
+			)
+			continue
+		end
+
+		-- A host that RETURNS a table becomes that table. Reassigning a local inside
+		-- :__Recip does nothing: the module table was already returned, so the
+		-- framework is holding the original.
+		local ok, replacement = pcall(entry.Module.__Recip, entry.Module, served)
+		if not ok then
+			fail("%s:__Recip errored: %s", name, tostring(replacement))
+		end
+		if type(replacement) == "table" then
+			setmetatable(entry.Module, nil)
+			entry.Module = replacement
+			setmetatable(replacement, { __index = entry.Src })
+		end
+		received += 1
+	end
+
+	return received
+end
+
 -- ============================================================ 7. the boot order ===
 
 -- A Controller only ever exists on the client and a Manager only on the server, so
@@ -778,6 +848,11 @@ function Bootstrap.Configure(config, opts)
 		local entry = modules[name]
 		inject(entry, tuning[name])
 
+	end
+
+	-- 8b ------------------------------------------------ served client Services
+	if side == "Client" then
+		receiveServe(modules, junction)
 	end
 
 	-- 9 --------------------------------------------------------------- :Start
