@@ -220,26 +220,26 @@ handler returns.
 -- CombatService
 local Memory = Src:Channel("MemoryService")
 
-local profile = Memory:Get("profile", { UserId = id })
-Memory:Patch("profile", { UserId = id, Changes = { Coins = 5 } })
+local profile = Memory:GET("profile", { UserId = id })
+Memory:PATCH("profile", { UserId = id, Changes = { Coins = 5 } })
 ```
 
 ```lua
 -- MemoryService
-function MemoryService:Get(route, payload, from)
+function MemoryService:GET(route, payload, from)
     if route == "profile" then
         return self.profiles[payload.UserId]
     end
 end
 ```
 
-The verbs are the REST methods and nothing else: `Get`, `Post`, `Put`, `Patch`,
-`Delete`, `Head`, `Options`. That is the entire vocabulary, so a Service's surface to
+The verbs are the REST methods and nothing else: `GET`, `POST`, `PUT`, `PATCH`,
+`DELETE`, `HEAD`, `OPTIONS`. That is the entire vocabulary, so a Service's surface to
 its peers is seven names rather than however many someone felt like inventing, and
 reading a call tells you what it does to the other side. A handler receives
 `(route, payload, from)`, where `from` is the calling Service's name.
 
-`Options` answers even when the Service does not implement it, listing the verbs it
+`OPTIONS` answers even when the Service does not implement it, listing the verbs it
 does. Calling a verb the target has no handler for is an error naming what it *does*
 implement.
 

@@ -41,21 +41,21 @@ do
 	local memory = {
 		profiles = { [1] = { Coins = 10, Name = "Ada" } },
 	}
-	function memory:Get(route, payload, from)
-		table.insert(log, string.format("Get %s from %s", route, from))
+	function memory:GET(route, payload, from)
+		table.insert(log, string.format("GET %s from %s", route, from))
 		if route == "profile" then
 			return self.profiles[payload.UserId]
 		end
 		return nil
 	end
-	function memory:Patch(route, payload)
+	function memory:PATCH(route, payload)
 		local profile = self.profiles[payload.UserId]
 		for key, value in payload.Changes do
 			profile[key] = value
 		end
 		return profile
 	end
-	function memory:Delete(route, payload)
+	function memory:DELETE(route, payload)
 		self.profiles[payload.UserId] = nil
 		return true
 	end
@@ -66,15 +66,15 @@ do
 
 	local channel = caller.Src:Channel("MemoryService")
 
-	local profile = channel:Get("profile", { UserId = 1 })
+	local profile = channel:GET("profile", { UserId = 1 })
 	check("Get reaches the other Service", profile ~= nil and profile.Name == "Ada")
-	check("...and the handler is told who called", log[1] == "Get profile from CombatService", log[1])
+	check("...and the handler is told who called", log[1] == "GET profile from CombatService", log[1])
 
-	local patched = channel:Patch("profile", { UserId = 1, Changes = { Coins = 99 } })
+	local patched = channel:PATCH("profile", { UserId = 1, Changes = { Coins = 99 } })
 	T.equal("Patch runs on the same live module", patched.Coins, 99)
 	T.equal("...the target's own state changed", memory.profiles[1].Coins, 99)
 
-	check("Delete works", channel:Delete("profile", { UserId = 1 }) == true)
+	check("Delete works", channel:DELETE("profile", { UserId = 1 }) == true)
 	check("...and it really deleted", memory.profiles[1] == nil)
 
 	check("the channel is cached", caller.Src:Channel("MemoryService") == channel)
@@ -86,15 +86,15 @@ do
 	local add = world()
 
 	local target = {}
-	function target:Get() end
-	function target:Post() end
+	function target:GET() end
+	function target:POST() end
 
 	add("DataService", "Service", target)
 	local caller = add("UserService", "Service", {})
 	local channel = caller.Src:Channel("DataService")
 
 	check("every REST verb exists on the channel", (function()
-		for _, verb in { "Get", "Post", "Put", "Patch", "Delete", "Head", "Options" } do
+		for _, verb in { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" } do
 			if type(channel[verb]) ~= "function" then
 				return false
 			end
@@ -106,20 +106,20 @@ do
 
 	T.equal(
 		"Options answers without the Service implementing it",
-		table.concat(channel:Options(), ","),
-		"Get,Post"
+		table.concat(channel:OPTIONS(), ","),
+		"GET,POST"
 	)
 
 	throws("a verb the target does not answer says what it does", function()
-		channel:Put("thing", {})
-	end, "DataService answers no :Put. it implements: Get, Post")
+		channel:PUT("thing", {})
+	end, "DataService answers no :PUT. it implements: GET, POST")
 end
 
 -- ==================================================================== the rules ===
 
 do
 	local add = world()
-	add("RealService", "Service", { Get = function() end })
+	add("RealService", "Service", { GET = function() end })
 	add("SomeManager", "Manager", {})
 	local controller = add("HudController", "Controller", {})
 	local service = add("MineService", "Service", {})
@@ -147,13 +147,13 @@ do
 	-- channels are same-side by construction: they reach the Modules table of the
 	-- side you are on, so a client channel finds the client's half
 	local add = world()
-	local clientish = { Get = function()
+	local clientish = { GET = function()
 		return "server side"
 	end }
 	add("SplitService", "Service", clientish)
 	local caller = add("OtherService", "Service", {})
 
-	T.equal("it reaches the module on this side", caller.Src:Channel("SplitService"):Get("x"), "server side")
+	T.equal("it reaches the module on this side", caller.Src:Channel("SplitService"):GET("x"), "server side")
 end
 
 T.done()

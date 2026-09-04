@@ -117,27 +117,28 @@ Channels are cached per target.
 
 | Verb | Means |
 | --- | --- |
-| `Get` | read, changes nothing |
-| `Post` | submit something new |
-| `Put` | replace it wholesale |
-| `Patch` | change part of it |
-| `Delete` | remove it |
-| `Head` | does it exist, how big: no body |
-| `Options` | what does this Service answer |
+| `GET` | read, changes nothing |
+| `POST` | submit something new |
+| `PUT` | replace it wholesale |
+| `PATCH` | change part of it |
+| `DELETE` | remove it |
+| `HEAD` | does it exist, how big: no body |
+| `OPTIONS` | what does this Service answer |
 
-Those seven are the whole vocabulary. The point is not ceremony: it is that a Service's
+Those seven are the whole vocabulary, capitalised on purpose: they are protocol verbs
+rather than Lua methods, and at a call site the shouting is the point. The point is not ceremony: it is that a Service's
 surface to its peers is a fixed, small set of names with agreed meanings, so a call site
 tells you what it does to the other side without reading the handler.
 
 The other side implements the verbs it supports:
 
 ```lua
-function MemoryService:Get(route, payload, from)
+function MemoryService:GET(route, payload, from)
     -- from is the calling Service's name
 end
 ```
 
-`Options` is answered by the framework when the Service does not implement it, returning
+`OPTIONS` is answered by the framework when the Service does not implement it, returning
 the verbs it does. A verb with no handler errors, naming what the target implements.
 
 Errors, all at the call:

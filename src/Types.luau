@@ -183,13 +183,13 @@ export type Scope = {
 -- Service to Service, on this side, directly. The verbs are the REST methods and
 -- nothing else, so a Service's surface to its peers is seven names.
 export type Channel = {
-	Get: (self: Channel, route: string?, payload: any?) -> any,
-	Post: (self: Channel, route: string?, payload: any?) -> any,
-	Put: (self: Channel, route: string?, payload: any?) -> any,
-	Patch: (self: Channel, route: string?, payload: any?) -> any,
-	Delete: (self: Channel, route: string?, payload: any?) -> any,
-	Head: (self: Channel, route: string?, payload: any?) -> any,
-	Options: (self: Channel, route: string?, payload: any?) -> any,
+	GET: (self: Channel, route: string?, payload: any?) -> any,
+	POST: (self: Channel, route: string?, payload: any?) -> any,
+	PUT: (self: Channel, route: string?, payload: any?) -> any,
+	PATCH: (self: Channel, route: string?, payload: any?) -> any,
+	DELETE: (self: Channel, route: string?, payload: any?) -> any,
+	HEAD: (self: Channel, route: string?, payload: any?) -> any,
+	OPTIONS: (self: Channel, route: string?, payload: any?) -> any,
 }
 
 export type Src = {
@@ -240,13 +240,13 @@ export type Module = {
 
 	-- Channel handlers, on a Service. Each takes (route, payload, from), where
 	-- `from` is the calling Service's name.
-	Get: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
-	Post: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
-	Put: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
-	Patch: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
-	Delete: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
-	Head: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
-	Options: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	GET: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	POST: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	PUT: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	PATCH: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	DELETE: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	HEAD: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	OPTIONS: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
 
 	-- A double-sided Service: __Serve returns the client half, run BY the client.
 	__Serve: ((self: any) -> Module)?,

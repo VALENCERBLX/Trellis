@@ -4555,26 +4555,29 @@ end
 -- call into the other Service on this side, so it is synchronous and returns whatever
 -- the handler returns.
 --
---   local Memory = Src:Channel("Memory")
---   local profile = Memory:Get("profile", { UserId = id })
---   Memory:Patch("profile", { Coins = 5 })
+--   local Memory = Src:Channel("MemoryService")
+--   local profile = Memory:GET("profile", { UserId = id })
+--   Memory:PATCH("profile", { Coins = 5 })
 --
 -- The verbs are the REST methods and nothing else. That is the whole vocabulary, so
 -- a Service's surface to its peers is seven names rather than however many someone
 -- felt like inventing, and reading a call tells you what it does to the other side.
 --
---   Get      read, changes nothing
---   Post     submit something new
---   Put      replace it wholesale
---   Patch    change part of it
---   Delete   remove it
---   Head     does it exist, how big is it: no body
---   Options  what does this Service answer
+--   GET      read, changes nothing
+--   POST     submit something new
+--   PUT      replace it wholesale
+--   PATCH    change part of it
+--   DELETE   remove it
+--   HEAD     does it exist, how big is it: no body
+--   OPTIONS  what does this Service answer
+--
+-- Capitalised on purpose: they are protocol verbs, not Lua methods, and at a call
+-- site the shouting is the point.
 --
 -- The other side implements the verbs it supports, taking (route, payload, from),
 -- where `from` is the calling Service's name:
 --
---   function MemoryService:Get(route, payload, from)
+--   function MemoryService:GET(route, payload, from)
 --       if route == "profile" then return self.profiles[payload.UserId] end
 --   end
 --
@@ -4582,7 +4585,7 @@ end
 -- reaching for one is an error: this is the seam between Services, and widening it to
 -- everything would make it just another way to call anything.
 
-local REST = { "Get", "Post", "Put", "Patch", "Delete", "Head", "Options" }
+local REST = { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" }
 
 local Channel = {}
 Channel.__index = Channel
@@ -4601,7 +4604,7 @@ function Channel:_call(verb: string, route: string?, payload: any?)
 	if type(handler) ~= "function" then
 		-- Options is answerable without the Service implementing it: the framework
 		-- already knows which verbs it defines.
-		if verb == "Options" then
+		if verb == "OPTIONS" then
 			local supported = {}
 			for _, name in REST do
 				if type(target[name]) == "function" then
@@ -5531,13 +5534,13 @@ export type Scope = {
 -- Service to Service, on this side, directly. The verbs are the REST methods and
 -- nothing else, so a Service's surface to its peers is seven names.
 export type Channel = {
-	Get: (self: Channel, route: string?, payload: any?) -> any,
-	Post: (self: Channel, route: string?, payload: any?) -> any,
-	Put: (self: Channel, route: string?, payload: any?) -> any,
-	Patch: (self: Channel, route: string?, payload: any?) -> any,
-	Delete: (self: Channel, route: string?, payload: any?) -> any,
-	Head: (self: Channel, route: string?, payload: any?) -> any,
-	Options: (self: Channel, route: string?, payload: any?) -> any,
+	GET: (self: Channel, route: string?, payload: any?) -> any,
+	POST: (self: Channel, route: string?, payload: any?) -> any,
+	PUT: (self: Channel, route: string?, payload: any?) -> any,
+	PATCH: (self: Channel, route: string?, payload: any?) -> any,
+	DELETE: (self: Channel, route: string?, payload: any?) -> any,
+	HEAD: (self: Channel, route: string?, payload: any?) -> any,
+	OPTIONS: (self: Channel, route: string?, payload: any?) -> any,
 }
 
 export type Src = {
@@ -5588,13 +5591,13 @@ export type Module = {
 
 	-- Channel handlers, on a Service. Each takes (route, payload, from), where
 	-- `from` is the calling Service's name.
-	Get: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
-	Post: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
-	Put: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
-	Patch: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
-	Delete: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
-	Head: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
-	Options: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	GET: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	POST: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	PUT: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	PATCH: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	DELETE: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	HEAD: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
+	OPTIONS: ((self: any, route: string?, payload: any?, from: string?) -> any)?,
 
 	-- A double-sided Service: __Serve returns the client half, run BY the client.
 	__Serve: ((self: any) -> Module)?,
