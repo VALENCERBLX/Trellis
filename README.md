@@ -1,12 +1,8 @@
 <div align="center">
 
-```
- ████████ ██████  ███████ ██      ██      ██ ███████
-    ██    ██   ██ ██      ██      ██      ██ ██
-    ██    ██████  █████   ██      ██      ██ ███████
-    ██    ██   ██ ██      ██      ██      ██      ██
-    ██    ██   ██ ███████ ███████ ███████ ██ ███████
-```
+
+<img width="512" height="256" alt="TRELLISSHORT" src="https://github.com/user-attachments/assets/64163f83-193b-4a37-971b-3807933b0bad" />
+
 
 **A game framework for Roblox. The folder tree you hand it becomes the API.**
 
