@@ -153,6 +153,18 @@ for name in reg.Main.Utilities do
 end
 check("Main containers are iterable", table.concat(iterated, ",") == "Maid", table.concat(iterated, ","))
 
+-- A namespace resolves lazily, so the table behind it is empty and every raw
+-- look at it says so. Length and tostring have to answer from the names, or a
+-- populated bin reads as one that never mounted.
+check("#Main counts without loading", #reg.Main.Packages == #reg:Names("Package"), tostring(#reg.Main.Packages))
+check("#Main is not zero when the bin has entries", #reg.Main.Packages > 0, tostring(#reg.Main.Packages))
+check(
+	"tostring(Main.X) names the container and its entries",
+	string.find(tostring(reg.Main.Packages), "Packages{", 1, true) == 1
+		and string.find(tostring(reg.Main.Packages), "Lume", 1, true) ~= nil,
+	tostring(reg.Main.Packages)
+)
+
 -- preload --------------------------------------------------------------------
 local loaded = reg:Preload("Service")
 check("Preload returns every entry once", loaded.CombatService.id == "CombatService")

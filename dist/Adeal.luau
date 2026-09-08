@@ -3085,7 +3085,7 @@ end
 
 return Reg
 ]=] },
-	{ Name = "Registry", Source = [=[
+	{ Name = "Registry", Source = [[
 --!strict
 -- Trellis
 -- Registry.luau
@@ -3508,7 +3508,9 @@ function Registry:_generate()
 	for binName in self._bins do
 		self:_generateGetters(binName)
 
-		self.Main[self._containers[binName]] = setmetatable({}, {
+		local container = self._containers[binName]
+
+		self.Main[container] = setmetatable({}, {
 			__index = function(_, name: string)
 				return self:Resolve(binName, name)
 			end,
@@ -3527,6 +3529,23 @@ function Registry:_generate()
 					return nil
 				end
 			end,
+
+			-- A namespace holds nothing until you ask it for something, so the
+			-- table behind it is genuinely empty and `print` and `next` both say
+			-- so. That reads as a bin that failed to mount, which is a bad half
+			-- hour for anyone who has just written their Hierarchy. Length and
+			-- tostring answer from the names instead, so looking at a namespace
+			-- shows what is in it without loading any of it.
+			__len = function()
+				return #self:Names(binName)
+			end,
+			__tostring = function()
+				local names = self:Names(binName)
+				if #names == 0 then
+					return string.format("%s (empty)", container)
+				end
+				return string.format("%s{ %s }", container, table.concat(names, ", "))
+			end,
 		})
 	end
 
@@ -3534,7 +3553,7 @@ function Registry:_generate()
 end
 
 return Registry
-]=] },
+]] },
 	{ Name = "Scheduler", Source = [[
 --!strict
 -- Trellis
