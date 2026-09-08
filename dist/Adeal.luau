@@ -1,4 +1,4 @@
--- Trellis 0.1.0
+-- Trellis 0.2.0
 -- dist/Adeal.luau
 -- Valence
 --
@@ -14,7 +14,7 @@
 --
 -- To lay out a project around it afterwards, run dist/Setup.luau.
 
-local VERSION = "0.1.0"
+local VERSION = "0.2.0"
 
 local ROOT = [[
 --!nonstrict
@@ -3351,13 +3351,40 @@ function Registry:Mount(binName: string, name: string, value: any)
 	local fresh = self._bins[binName] == nil
 	self:_bin(binName, binName)
 
-	self._bins[binName][name] = {
+	local bin = self._bins[binName]
+	local previous = bin[name]
+
+	local entry = {
 		Name = name,
 		Source = value,
 		Origin = string.format("mounted %s.%s", binName, name),
 		Value = value,
 		Loaded = true,
 	}
+
+	bin[name] = entry
+
+	if previous ~= nil then
+		-- The stripped alias points at the SAME entry object as the real name, so
+		-- replacing one and leaving the other behind makes :GetService("Player")
+		-- and :GetService("PlayerService") two different tables for one Service.
+		-- A delivered client half lands here, which is exactly where that would
+		-- bite: the alias would keep answering with the module from before the
+		-- delivery, forever. Move it with the entry, the way Reconcile does.
+		for key, existing in bin do
+			if existing == previous and key ~= name then
+				bin[key] = entry
+			end
+		end
+	elseif name ~= binName then
+		-- Nothing was mounted under this name, so the alias has to be created
+		-- rather than moved. A Worker adopted at runtime was never in the
+		-- hierarchy, and should still answer to its stripped name.
+		local stripped = string.match(name, "^(.+)" .. binName .. "$")
+		if stripped and #stripped > 0 and bin[stripped] == nil then
+			bin[stripped] = entry
+		end
+	end
 
 	if fresh then
 		-- Getters only. Main mirrors the hierarchy you wrote, and a Worker mounted at

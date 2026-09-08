@@ -196,4 +196,38 @@ do
 	T.equal("...and so does the suffix alias", registry:GetService("Combat").id, "reconciled")
 end
 
+-- ==============================================================================
+-- 6. Registry:Mount left the suffix alias behind, the same way Reconcile once did.
+--
+-- Mount is how a delivered client half of a double-sided Service replaces the
+-- module that was standing in for it. It rebound the real name and left the
+-- alias pointing at the entry from before delivery, so :GetService("Player")
+-- and :GetService("PlayerService") answered with two different tables for one
+-- Service, forever, and the bin reported the module twice.
+-- ==============================================================================
+do
+	local client = folder("Client", { folder("Services", { module("PlayerService", { id = "before" }) }) })
+	local registry = Registry.new({ client }, { Loader = H.loader })
+
+	T.equal("the alias resolves before delivery", registry:GetService("Player").id, "before")
+
+	registry:Mount("Service", "PlayerService", { id = "delivered" })
+
+	T.equal("the real name sees the delivered module", registry:GetService("PlayerService").id, "delivered")
+	T.equal("...and so does the suffix alias", registry:GetService("Player").id, "delivered")
+	T.equal("Names reports it exactly once", #registry:Names("Service"), 1)
+end
+
+-- A name mounted at runtime that was never in the hierarchy has no alias to move,
+-- so one has to be created or the stripped name never resolves at all.
+do
+	local empty = folder("Client", { folder("Services", {}) })
+	local registry = Registry.new({ empty }, { Loader = H.loader })
+
+	registry:Mount("Service", "ScoutService", { id = "adopted" })
+
+	T.equal("an adopted module resolves by its full name", registry:GetService("ScoutService").id, "adopted")
+	T.equal("...and by its stripped name", registry:GetService("Scout").id, "adopted")
+end
+
 T.done()
