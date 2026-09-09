@@ -6,9 +6,9 @@
 
 **A game framework for Roblox. The folder tree you hand it becomes the API.**
 
-![Version](https://img.shields.io/badge/version-0.2.0-6C3EF4?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.2.1-6C3EF4?style=for-the-badge)
 ![Luau](https://img.shields.io/badge/Luau-Roblox-A78BFA?style=for-the-badge)
-![Tests](https://img.shields.io/badge/tests-386-6C3EF4?style=for-the-badge)
+![Tests](https://img.shields.io/badge/tests-389-6C3EF4?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-MIT-6C3EF4?style=for-the-badge)
 
 </div>
@@ -121,7 +121,7 @@ Nothing else in the game touches the framework.
 ```toml
 # wally.toml
 [dependencies]
-Trellis = "valence/trellis@0.2.0"
+Trellis = "valence/trellis@0.2.1"
 ```
 
 ```sh
@@ -1479,7 +1479,7 @@ Rough migration order:
 
 ## Status
 
-386 tests pass under Lune, and `rojo build` produces a clean model.
+389 tests pass under Lune, and `rojo build` produces a clean model.
 
 Trellis has run inside Roblox: a full game was migrated onto it from Junky and verified
 end to end, with a client input crossing the wire through a schema, a fence, a Manager,

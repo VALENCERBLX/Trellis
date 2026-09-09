@@ -230,4 +230,59 @@ do
 	T.equal("...and by its stripped name", registry:GetService("Scout").id, "adopted")
 end
 
+-- ==============================================================================
+-- 7. Trove:Clean threw on every Roblox Instance it held.
+--
+-- teardown probed `type(item.Disconnect)` first. Reading a member a Roblox
+-- Instance does not have RAISES rather than returning nil, so that probe threw on
+-- a Part before anything reached :Destroy. Every instance added to a Trove errored
+-- on cleanup instead of being destroyed, which is the headline use of the feature.
+--
+-- It survived a green suite because the harness stubs Instance with plain tables,
+-- where reading a missing key is nil and harmless. This test models the raising
+-- index so the suite can actually see it.
+-- ==============================================================================
+do
+	local Trove = H.src("Trove")
+
+	local destroyed = false
+	local raising = setmetatable({}, {
+		__index = function(_, key)
+			if key == "Destroy" then
+				return function()
+					destroyed = true
+				end
+			end
+			error(string.format("%s is not a valid member of Instance", tostring(key)), 0)
+		end,
+	})
+
+	local trove = Trove.new()
+	trove:Add(raising)
+
+	local ok, err = pcall(function()
+		trove:Clean()
+	end)
+
+	T.check("cleaning an instance-like that raises on a missing member does not throw", ok, err)
+	T.check("...and it was destroyed", destroyed)
+end
+
+-- A connection still wins over a destroy, for anything carrying both.
+do
+	local Trove = H.src("Trove")
+
+	local disconnected, destroyed = false, false
+	local both = {
+		Disconnect = function() disconnected = true end,
+		Destroy = function() destroyed = true end,
+	}
+
+	local trove = Trove.new()
+	trove:Add(both)
+	trove:Clean()
+
+	T.check("Disconnect still wins over Destroy", disconnected and not destroyed)
+end
+
 T.done()

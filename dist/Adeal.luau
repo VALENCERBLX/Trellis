@@ -1,4 +1,4 @@
--- Trellis 0.2.0
+-- Trellis 0.2.1
 -- dist/Adeal.luau
 -- Valence
 --
@@ -14,7 +14,7 @@
 --
 -- To lay out a project around it afterwards, run dist/Setup.luau.
 
-local VERSION = "0.2.0"
+local VERSION = "0.2.1"
 
 local ROOT = [[
 --!nonstrict
@@ -5306,6 +5306,20 @@ function Trove.new()
 	return setmetatable({ _items = {}, _cleaning = false }, Trove)
 end
 
+-- Reading a member a Roblox Instance does not have RAISES, rather than returning
+-- nil the way a table does. So `type(item.Disconnect)` on a Part throws before
+-- anything gets as far as :Destroy, and every instance ever added to a Trove
+-- errored on cleanup instead of being destroyed.
+--
+-- The Lune suite stubs Instance with plain tables, where that probe is harmless,
+-- which is exactly why this survived a green test run and only appeared in Studio.
+local function probe(item, member: string): boolean
+	local ok, value = pcall(function()
+		return item[member]
+	end)
+	return ok and type(value) == "function"
+end
+
 local function teardown(item)
 	local kind = type(item)
 
@@ -5314,19 +5328,37 @@ local function teardown(item)
 		return
 	end
 
-	if kind == "table" or kind == "userdata" then
-		if type(item.Disconnect) == "function" then
-			item:Disconnect()
-			return
-		end
-		if type(item.Destroy) == "function" then
+	if kind ~= "table" and kind ~= "userdata" then
+		return
+	end
+
+	-- Ask what it IS before asking what it can do. typeof is absent outside Roblox,
+	-- so this falls through to the probes under Lune.
+	if typeof then
+		local roblox = typeof(item)
+		if roblox == "Instance" then
 			item:Destroy()
 			return
 		end
-		if type(item.Clean) == "function" then
-			item:Clean()
+		if roblox == "RBXScriptConnection" then
+			item:Disconnect()
 			return
 		end
+	end
+
+	-- Disconnect still wins over Destroy for anything else, since a connection that
+	-- also has :Destroy should be disconnected.
+	if probe(item, "Disconnect") then
+		item:Disconnect()
+		return
+	end
+	if probe(item, "Destroy") then
+		item:Destroy()
+		return
+	end
+	if probe(item, "Clean") then
+		item:Clean()
+		return
 	end
 end
 
