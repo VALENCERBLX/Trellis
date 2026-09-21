@@ -11,7 +11,7 @@
 ![Tests](https://img.shields.io/badge/tests-389-6C3EF4?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-MIT-6C3EF4?style=for-the-badge)
 
-[![Star History Chart](https://api.star-history.com/svg?repos=VALENCERBLX/Trellis&type=Date)
+![Star History Chart](https://api.star-history.com/svg?repos=VALENCERBLX/Trellis&type=Date)
 
 </div>
 
